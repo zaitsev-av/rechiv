@@ -20,7 +20,7 @@ recognises speech. Audio and transcripts are never sent to an external STT servi
 - a movable, resizable live panel on top of the page;
 - history of local recordings;
 - transcript editing and export;
-- summaries via a configurable OpenAI-compatible LLM API;
+- summaries via a configurable OpenAI-compatible LLM API, with manual editing and saved changes available to MCP agents;
 - light and dark themes;
 - recovery of unfinished jobs after a restart.
 
@@ -271,3 +271,5 @@ Documentation is kept in two languages; see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 [MIT](LICENSE).
+
+The summary editor uses [Tiptap](https://github.com/ueberdosis/tiptap) (MIT), including its official Markdown extension.

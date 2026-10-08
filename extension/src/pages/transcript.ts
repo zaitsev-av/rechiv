@@ -13,13 +13,18 @@ import {
   getLegacyTitles,
   plural,
 } from "@shared/utils";
-import { markdownToHtml } from "./transcript-markdown";
+import { createSummaryEditor, type SummaryCommand, type SummaryEditor } from "./summary-editor";
 
 let apiClient: SttApiClient;
 let transcript: TranscriptResult;
 let sessionId: string;
 let sessionTitle: string = "";
 let summaryData: SummaryResult | null = null;
+let summaryEditor: SummaryEditor | null = null;
+let summaryEditing = false;
+let summarySaving = false;
+let summaryGenerating = false;
+let summaryBaseline = "";
 let transcriptIsFinal = false;
 let llmConfigured = false;
 let livePollTimer: ReturnType<typeof setInterval> | null = null;
@@ -207,8 +212,136 @@ function switchTab(tabName: string) {
 
 function renderSummary() {
   if (!summaryData) return;
-  const container = document.getElementById("summary-content")!;
-  container.innerHTML = markdownToHtml(summaryData.content);
+  if (!summaryEditor) {
+    summaryEditor = createSummaryEditor(
+      document.getElementById("summary-editor")!,
+      updateSummaryEditing,
+    );
+    createSummaryToolbar();
+  }
+  summaryEditor.showMarkdown(summaryData.content);
+  const edited = document.getElementById("summary-edited")!;
+  edited.classList.toggle("hidden", !summaryData.editedAt);
+  if (summaryData.editedAt) {
+    const { date, time } = formatDateTime(new Date(summaryData.editedAt));
+    edited.textContent = `Отредактировано вручную · ${date} ${time}`;
+  } else {
+    edited.textContent = "";
+  }
+  updateSummaryEditing();
+}
+
+function summaryHasChanges(): boolean {
+  return summaryEditing && summaryEditor?.getMarkdown() !== summaryBaseline;
+}
+
+function updateSummaryEditing() {
+  document.getElementById("summary-content")!.classList.toggle("editing", summaryEditing);
+  document.getElementById("summary-toolbar")!.classList.toggle("hidden", !summaryEditing);
+  for (const id of ["btn-regenerate", "btn-copy-summary", "btn-edit-summary"]) {
+    const btn = document.getElementById(id) as HTMLButtonElement;
+    btn.classList.toggle("hidden", summaryEditing);
+    btn.disabled = summaryGenerating;
+  }
+  for (const id of ["btn-save-summary", "btn-cancel-summary"]) {
+    const btn = document.getElementById(id) as HTMLButtonElement;
+    btn.classList.toggle("hidden", !summaryEditing);
+    btn.disabled = summarySaving || (id === "btn-save-summary" && !summaryEditor?.hasText());
+  }
+  const save = document.getElementById("btn-save-summary")!;
+  save.classList.toggle("btn-spinner", summarySaving);
+  save.textContent = summarySaving ? "Сохранение…" : "Сохранить";
+  for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-summary-command]")) {
+    const command = btn.dataset.summaryCommand as SummaryCommand;
+    btn.disabled = summarySaving;
+    if (command !== "undo" && command !== "redo") {
+      btn.setAttribute("aria-pressed", String(summaryEditor?.isActive(command) ?? false));
+    }
+  }
+}
+
+function createSummaryToolbar() {
+  const actions: [SummaryCommand, string, string][] = [
+    ["bold", "Жирный (⌘B / Ctrl+B)", "M6 3h5a4 4 0 0 1 0 8H6z M6 11h6a4 4 0 0 1 0 8H6z"],
+    ["italic", "Курсив (⌘I / Ctrl+I)", "M10 3h8 M6 19h8 M14 3 10 19"],
+    ["heading2", "Заголовок 2", "M3 4v16 M12 4v16 M3 12h9 M16 13c0-4 6-4 6 0 0 2-6 4-6 7h6"],
+    ["heading3", "Заголовок 3", "M3 4v16 M12 4v16 M3 12h9 M16 11c7-3 8 5 2 5 6 0 5 7-2 4"],
+    ["bulletList", "Маркированный список", "M9 5h12 M9 12h12 M9 19h12 M3 5h1 M3 12h1 M3 19h1"],
+    [
+      "orderedList",
+      "Нумерованный список",
+      "M10 5h11 M10 12h11 M10 19h11 M3 3h1v6 M2 14c4-3 6 1 3 3l-3 3h5",
+    ],
+    ["undo", "Отменить (⌘Z / Ctrl+Z)", "M8 4 3 9l5 5 M3 9h11a6 6 0 0 1 0 12"],
+    ["redo", "Повторить (⌘⇧Z / Ctrl+Shift+Z)", "m16 4 5 5-5 5 M21 9H10a6 6 0 0 0 0 12"],
+  ];
+  const toolbar = document.getElementById("summary-toolbar")!;
+  for (const [command, label, path] of actions) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    btn.dataset.summaryCommand = command;
+    const icon = pencilIcon();
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.querySelector("path")!.setAttribute("d", path);
+    icon.querySelector("path")!.setAttribute("stroke-width", "2");
+    btn.append(icon);
+    btn.addEventListener("mousedown", (event) => event.preventDefault());
+    btn.addEventListener("click", () => summaryEditor?.command(command));
+    toolbar.append(btn);
+  }
+}
+
+function startSummaryEditing() {
+  if (!summaryEditor || !summaryData || summaryGenerating || summaryEditing) return;
+  hideBanner();
+  summaryEditor.setEditable(true);
+  summaryBaseline = summaryEditor.getMarkdown();
+  summaryEditing = true;
+  updateSummaryEditing();
+}
+
+function finishSummaryEditing() {
+  summaryEditing = false;
+  summaryEditor?.setEditable(false);
+  updateSummaryEditing();
+}
+
+function cancelSummaryEditing() {
+  if (!summaryEditing || summarySaving || !summaryData) return;
+  if (summaryHasChanges() && !confirm("Отменить правки?")) return;
+  summaryEditor?.showMarkdown(summaryData.content);
+  finishSummaryEditing();
+}
+
+async function saveSummaryEditing() {
+  if (!summaryEditing || summarySaving || !summaryEditor?.hasText() || !summaryData) return;
+  if (!summaryHasChanges()) {
+    finishSummaryEditing();
+    return;
+  }
+  const updated = {
+    ...summaryData,
+    content: summaryEditor.getMarkdown(),
+    editedAt: new Date().toISOString(),
+  };
+  summarySaving = true;
+  summaryEditor.setEditable(false);
+  updateSummaryEditing();
+  hideBanner();
+  try {
+    await apiClient.putSummary(sessionId, updated);
+    summaryData = updated;
+    finishSummaryEditing();
+    renderSummary();
+  } catch (err) {
+    showBanner(`Не удалось сохранить саммари: ${getErrorMessage(err)}`);
+    summaryEditor.setEditable(true);
+  } finally {
+    summarySaving = false;
+    updateSummaryEditing();
+  }
 }
 
 function renameSpeaker(el: HTMLElement, speakerId: string, currentName: string): Promise<void> {
@@ -245,6 +378,14 @@ function hideBanner(): void {
 }
 
 async function handleGenerateSummary(e: Event) {
+  if (summaryEditing || summaryGenerating || !transcriptIsFinal) return;
+  if (
+    summaryData?.editedAt &&
+    !confirm("Саммари отредактировано вручную. Перегенерировать и потерять правки?")
+  )
+    return;
+  summaryGenerating = true;
+  updateSummaryEditing();
   const btn = e.currentTarget as HTMLButtonElement;
   const originalText = btn.textContent!;
   btn.textContent = "Генерация...";
@@ -273,6 +414,8 @@ async function handleGenerateSummary(e: Event) {
   } catch (err: unknown) {
     showBanner(getErrorMessage(err));
   } finally {
+    summaryGenerating = false;
+    updateSummaryEditing();
     btn.textContent = originalText;
     btn.classList.remove("btn-spinner");
     btn.disabled = false;
@@ -529,8 +672,33 @@ document.getElementById("btn-copy")!.addEventListener("click", () => {
   setTimeout(() => (btn.textContent = "Копировать текст"), 2000);
 });
 
-window.addEventListener("beforeunload", () => {
+document.getElementById("btn-edit-summary")!.addEventListener("click", startSummaryEditing);
+document.getElementById("btn-cancel-summary")!.addEventListener("click", cancelSummaryEditing);
+document
+  .getElementById("btn-save-summary")!
+  .addEventListener("click", () => void saveSummaryEditing());
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (summaryEditing && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      // Перехватываем раньше ProseMirror: Mod+Enter у StarterKit вставляет перенос.
+      event.stopPropagation();
+      void saveSummaryEditing();
+    }
+  },
+  true,
+);
+window.addEventListener("beforeunload", (event) => {
+  if (summaryHasChanges()) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
+window.addEventListener("pagehide", (event) => {
+  if (event.persisted) return;
   stopLivePolling();
+  summaryEditor?.destroy();
 });
 
 watchThemeChanges();

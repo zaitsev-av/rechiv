@@ -84,7 +84,8 @@ During a recording every finished audio chunk goes straight into the shared live
 transcript. The extension polls `GET /sessions/{id}/live` every two seconds; the response
 contains the recognised segments, the session status and the chunk progress. After the
 recording ends the same screen switches to the final `result.json`, where editing and
-summaries are available.
+summaries are available. Summaries can be edited manually in the same tab; changes
+are saved to `summary.json` and are also visible to MCP agents.
 
 ## Go/Python boundary
 

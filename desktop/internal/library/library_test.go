@@ -395,3 +395,27 @@ func TestLibraryReadsAtomicUpdates(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, page.Lines[0], "Имя 29")
 }
+
+func TestSummaryEditedAt(t *testing.T) {
+	for _, editedAt := range []string{"", "2026-10-08T12:34:56Z"} {
+		t.Run(editedAt, func(t *testing.T) {
+			dir := t.TempDir()
+			fixtureSession(t, dir, "call")
+			data := map[string]string{"content": "Правка", "model": "original"}
+			if editedAt != "" {
+				data["editedAt"] = editedAt
+			}
+			writeFixture(t, dir, "call", "summary.json", data)
+			summary, err := New(dir).GetSummary(t.Context(), "call")
+			require.NoError(t, err)
+			require.Equal(t, editedAt, summary.EditedAt)
+			raw, err := json.Marshal(summary)
+			require.NoError(t, err)
+			if editedAt == "" {
+				require.NotContains(t, string(raw), "editedAt")
+			} else {
+				require.Contains(t, string(raw), `"editedAt":"`+editedAt+`"`)
+			}
+		})
+	}
+}

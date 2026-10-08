@@ -55,6 +55,7 @@ export interface StreamInfo {
 export type RecordingState = "idle" | "detecting" | "recording" | "suspended";
 
 export interface SummaryResult {
+  editedAt?: string;
   content: string;
   createdAt: string;
   model: string;

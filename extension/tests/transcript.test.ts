@@ -1,5 +1,52 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { LiveTranscriptResult, TranscriptResult } from "../src/shared/types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LiveTranscriptResult, SummaryResult, TranscriptResult } from "../src/shared/types";
+
+const editorMock = vi.hoisted(() => ({
+  markdown: "",
+  editable: false,
+  onChange: () => {},
+  showMarkdown: vi.fn(),
+  setEditable: vi.fn(),
+  command: vi.fn(),
+  destroy: vi.fn(),
+}));
+vi.mock("../src/pages/summary-editor", () => ({
+  createSummaryEditor: (_container: HTMLElement, onChange: () => void) => {
+    editorMock.onChange = onChange;
+    editorMock.showMarkdown.mockImplementation((markdown: string) => {
+      editorMock.markdown = markdown.replace(/__([^_]+)__/g, "**$1**");
+      onChange();
+    });
+    editorMock.setEditable.mockImplementation((editable: boolean) => {
+      editorMock.editable = editable;
+    });
+    return {
+      ...editorMock,
+      getMarkdown: () => editorMock.markdown,
+      hasText: () => editorMock.markdown.trim().length > 0,
+      isActive: () => false,
+    };
+  },
+}));
+const generatedSummary = {
+  content: "Новое саммари",
+  model: "new-model",
+  createdAt: "2026-10-08T12:00:00Z",
+  chunked: false,
+};
+vi.mock("../src/shared/llm-client", () => ({
+  generateSummary: vi.fn(async () => generatedSummary),
+}));
+vi.mock("../src/shared/config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/shared/config")>()),
+  fetchModelInfo: vi.fn(async () => ({ modelId: "new-model", contextWindow: 8000 })),
+}));
+const savedSummary: SummaryResult = {
+  content: "## Решения\n\n__Сделать__ задачу",
+  model: "original-model",
+  createdAt: "2026-03-15T14:40:00Z",
+  chunked: true,
+};
 
 const mockTranscript: TranscriptResult = {
   sessionId: "test-1",
@@ -25,6 +72,7 @@ const mockTranscript: TranscriptResult = {
 
 async function loadTranscriptModule(
   apiResponse: TranscriptResult | LiveTranscriptResult = mockTranscript,
+  summary: SummaryResult = savedSummary,
 ) {
   document.body.innerHTML = `
     <h1 id="title"></h1>
@@ -41,7 +89,7 @@ async function loadTranscriptModule(
       <div id="segments"></div>
     </div>
     <div id="panel-summary" class="tab-panel hidden">
-      <div id="summary-content"></div>
+      <div id="summary-content"><div id="summary-edited"></div><div id="summary-toolbar"></div><div id="summary-editor"></div></div>
     </div>
     <div id="banner" class="banner hidden">
       <span id="banner-text"></span>
@@ -56,6 +104,9 @@ async function loadTranscriptModule(
     <footer id="footer-summary" class="hidden">
       <button id="btn-copy-summary"></button>
       <button id="btn-regenerate"></button>
+      <button id="btn-edit-summary"></button>
+      <button id="btn-save-summary" class="hidden"></button>
+      <button id="btn-cancel-summary" class="hidden"></button>
     </footer>
   `;
   Object.defineProperty(window, "location", {
@@ -68,10 +119,10 @@ async function loadTranscriptModule(
     if (key === "sessionTitles") return {};
     return {};
   });
-  globalThis.fetch = vi.fn().mockResolvedValue({
+  globalThis.fetch = vi.fn().mockImplementation(async (url) => ({
     ok: true,
-    json: () => Promise.resolve(apiResponse),
-  });
+    json: async () => (String(url).endsWith("/summary") ? summary : apiResponse),
+  }));
   vi.resetModules();
   await import("../src/pages/transcript");
   await new Promise((r) => setTimeout(r, 50));
@@ -80,6 +131,20 @@ async function loadTranscriptModule(
 describe("transcript page (module integration)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, "addEventListener");
+    vi.spyOn(document, "addEventListener");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    window.dispatchEvent(new Event("pagehide"));
+    for (const [name, callback] of vi.mocked(window.addEventListener).mock.calls) {
+      window.removeEventListener(name, callback);
+    }
+    for (const [name, callback, options] of vi.mocked(document.addEventListener).mock.calls) {
+      document.removeEventListener(name, callback, options);
+    }
+    vi.restoreAllMocks();
   });
 
   it("renders segments without XSS from malicious speaker names", async () => {
@@ -216,4 +281,138 @@ describe("transcript page (module integration)", () => {
     expect(banner.classList.contains("hidden")).toBe(false);
     expect(banner.textContent).toContain("Не удалось сохранить имя");
   });
+  it("включает правку и панель, без нормализованных изменений выходит без запроса", async () => {
+    await loadTranscriptModule();
+    button("btn-edit-summary").click();
+    expect(editorMock.editable).toBe(true);
+    expect(button("summary-toolbar").classList.contains("hidden")).toBe(false);
+    expect(document.querySelectorAll('[aria-pressed="false"]')).toHaveLength(6);
+    expect(button("btn-regenerate").classList.contains("hidden")).toBe(true);
+    button("btn-save-summary").click();
+    expect(editorMock.editable).toBe(false);
+    expect(summaryWrites()).toHaveLength(0);
+  });
+
+  it("сохраняет markdown и editedAt, сохраняя метаданные генерации", async () => {
+    await loadTranscriptModule();
+    button("btn-edit-summary").click();
+    changeSummary();
+    button("btn-save-summary").click();
+    expect(button("btn-save-summary").disabled).toBe(true);
+    expect(button("btn-save-summary").classList.contains("btn-spinner")).toBe(true);
+    await vi.waitFor(() => expect(editorMock.editable).toBe(false));
+    await vi.waitFor(() =>
+      expect(button("summary-edited").textContent).toContain("Отредактировано вручную"),
+    );
+    const body = JSON.parse(String(summaryWrites()[0][1]?.body));
+    expect(body).toEqual({
+      ...savedSummary,
+      content: "Дополненное саммари",
+      editedAt: expect.any(String),
+    });
+    expect(new Date(body.editedAt).toISOString()).toBe(body.editedAt);
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    button("btn-copy-summary").click();
+    expect(writeText).toHaveBeenCalledWith(body.content);
+  });
+
+  it("подтверждает отмену и возвращает сохранённый markdown", async () => {
+    await loadTranscriptModule();
+    button("btn-edit-summary").click();
+    changeSummary();
+    vi.mocked(window.confirm).mockReturnValueOnce(false);
+    button("btn-cancel-summary").click();
+    expect(window.confirm).toHaveBeenCalledWith("Отменить правки?");
+    expect(editorMock.editable).toBe(true);
+    expect(editorMock.markdown).toBe("Дополненное саммари");
+    button("btn-cancel-summary").click();
+    expect(editorMock.showMarkdown).toHaveBeenLastCalledWith(savedSummary.content);
+    expect(editorMock.editable).toBe(false);
+    expect(summaryWrites()).toHaveLength(0);
+  });
+
+  it("после ошибки сохранения оставляет текст и режим правки", async () => {
+    await loadTranscriptModule();
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 } as Response);
+    button("btn-edit-summary").click();
+    changeSummary();
+    button("btn-save-summary").click();
+    await vi.waitFor(() =>
+      expect(button("banner").textContent).toContain("Не удалось сохранить саммари"),
+    );
+    expect(editorMock.editable).toBe(true);
+    expect(editorMock.markdown).toBe("Дополненное саммари");
+    expect(button("btn-save-summary").disabled).toBe(false);
+  });
+
+  it("перед перегенерацией подтверждает потерю правок и сбрасывает editedAt", async () => {
+    await loadTranscriptModule(mockTranscript, {
+      ...savedSummary,
+      editedAt: "2026-10-08T10:00:00Z",
+    });
+    vi.mocked(window.confirm).mockReturnValueOnce(false);
+    button("btn-regenerate").click();
+    expect(window.confirm).toHaveBeenCalledWith(
+      "Саммари отредактировано вручную. Перегенерировать и потерять правки?",
+    );
+    expect(summaryWrites()).toHaveLength(0);
+    button("btn-regenerate").click();
+    await vi.waitFor(() => expect(summaryWrites()).toHaveLength(1));
+    expect(JSON.parse(String(summaryWrites()[0][1]?.body))).toEqual(generatedSummary);
+    expect(button("summary-edited").classList.contains("hidden")).toBe(true);
+  });
+
+  it("не сохраняет пустой документ ни кнопкой, ни сочетанием клавиш", async () => {
+    await loadTranscriptModule();
+    button("btn-edit-summary").click();
+    changeSummary("   ");
+    expect(button("btn-save-summary").disabled).toBe(true);
+    button("btn-save-summary").click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }));
+    expect(summaryWrites()).toHaveLength(0);
+    expect(editorMock.editable).toBe(true);
+  });
+
+  it.each([
+    "metaKey",
+    "ctrlKey",
+  ])("сохраняет по %s+Enter, Esc оставляет текст", async (modifier) => {
+    await loadTranscriptModule();
+    button("btn-edit-summary").click();
+    changeSummary();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(editorMock.editable).toBe(true);
+    expect(editorMock.markdown).toBe("Дополненное саммари");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", [modifier]: true }));
+    await vi.waitFor(() => expect(summaryWrites()).toHaveLength(1));
+  });
+
+  it("предупреждает при уходе только с несохранёнными изменениями", async () => {
+    await loadTranscriptModule();
+    button("btn-edit-summary").click();
+    const clean = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+    changeSummary();
+    const dirty = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+    button("btn-cancel-summary").click();
+    const cancelled = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(cancelled);
+    expect(cancelled.defaultPrevented).toBe(false);
+  });
 });
+
+function button(id: string): HTMLButtonElement {
+  return document.getElementById(id) as HTMLButtonElement;
+}
+function changeSummary(markdown = "Дополненное саммари") {
+  editorMock.markdown = markdown;
+  editorMock.onChange();
+}
+function summaryWrites() {
+  return vi
+    .mocked(fetch)
+    .mock.calls.filter(([url, init]) => String(url).endsWith("/summary") && init?.method === "PUT");
+}

@@ -29,6 +29,7 @@ type Call struct {
 }
 
 type Summary struct {
+	EditedAt  string `json:"editedAt,omitempty"`
 	ID        string `json:"id"`
 	Available bool   `json:"available"`
 	Content   string `json:"content"`

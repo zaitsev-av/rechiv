@@ -69,7 +69,11 @@
         </div>
 
         <div id="panel-summary" class="tab-panel hidden">
-          <article id="summary-content" class="summary-content"></article>
+          <article id="summary-content" class="summary-content">
+            <div id="summary-edited" class="summary-edited hidden"></div>
+            <div id="summary-toolbar" class="summary-toolbar hidden" role="toolbar" aria-label="Форматирование саммари"></div>
+            <div id="summary-editor"></div>
+          </article>
         </div>
 
       </div>
@@ -91,6 +95,9 @@
         <div class="action-dock-inner">
           <button id="btn-regenerate" class="btn btn-primary">Перегенерировать</button>
           <button id="btn-copy-summary" class="btn btn-secondary">Копировать саммари</button>
+          <button id="btn-edit-summary" class="btn btn-secondary">Редактировать</button>
+          <button id="btn-save-summary" class="btn btn-primary hidden">Сохранить</button>
+          <button id="btn-cancel-summary" class="btn btn-secondary hidden">Отмена</button>
         </div>
       </footer>
     </div>
