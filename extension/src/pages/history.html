@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>История созвонов — Rechiv</title>
+    <script src="../shared/theme-boot.js"></script>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="history.css">
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <div class="page">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="brand-copy">
+            <span class="brand-caption">Meeting intelligence</span>
+            <span class="brand-name">Rechiv</span>
+          </span>
+        </div>
+        <nav class="page-nav" aria-label="Разделы Rechiv">
+          <a href="history.html" aria-current="page">Созвоны</a>
+          <a href="settings.html">Настройки</a>
+        </nav>
+        <span class="local-badge">Данные не покидают компьютер</span>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div>
+            <p class="eyebrow">Архив встреч</p>
+            <h1>Ваши созвоны</h1>
+            <p class="hero-copy">
+              Возвращайтесь к решениям, договорённостям и точным формулировкам.
+            </p>
+          </div>
+          <div class="hero-visual" aria-hidden="true">
+            <span class="visual-card visual-card-back"></span>
+            <span class="visual-card visual-card-front">
+              <i></i><i></i><i></i>
+            </span>
+          </div>
+        </section>
+
+        <section class="archive">
+          <div class="archive-heading">
+            <h2>Последние записи</h2>
+            <span id="session-count" class="count-badge">Загрузка…</span>
+          </div>
+          <div id="sessions" class="session-grid" aria-live="polite">
+            <div class="loading-state">
+              <span class="loading-spinner"></span>
+              Загружаю историю
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <button id="btn-top" class="scroll-top" type="button" title="Наверх" aria-label="Наверх">
+        <span aria-hidden="true">↑</span>
+      </button>
+    </div>
+
+    <script src="history.js" type="module"></script>
+  </body>
+</html>

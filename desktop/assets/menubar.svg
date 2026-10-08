@@ -1,0 +1,15 @@
+<!-- macOS перекрашивает template image; градиент и цвет не нужны
+     и плохо читаются при размере строки меню в 18 точек. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44">
+  <path
+    d="M11 7h22a9 9 0 0 1 9 9v12a9 9 0 0 1-9 9H22l-10 7v-7h-1a9 9 0 0 1-9-9V16a9 9 0 0 1 9-9Z"
+    fill="none"
+    stroke="#000"
+    stroke-width="3.5"
+    stroke-linejoin="round"
+  />
+  <rect x="12" y="19" width="3.5" height="8" rx="1.75"/>
+  <rect x="18.5" y="15" width="3.5" height="16" rx="1.75"/>
+  <rect x="25" y="13" width="3.5" height="20" rx="1.75"/>
+  <rect x="31.5" y="17" width="3.5" height="12" rx="1.75"/>
+</svg>

@@ -1,0 +1,470 @@
+version: "3"
+
+vars:
+  PYTHON: '{{default "python3.13" .PYTHON}}'
+  VENV_DIR: "{{.ROOT_DIR}}/service/.venv"
+  VENV_PYTHON: "{{.VENV_DIR}}/bin/python"
+  BUILD_DIR: "{{.ROOT_DIR}}/build"
+  MACOS_BINARY: "{{.BUILD_DIR}}/rechiv-darwin-arm64"
+  LINUX_ARCH: '{{default "amd64" .LINUX_ARCH}}'
+  LINUX_BINARY: "{{.BUILD_DIR}}/rechiv-linux-{{.LINUX_ARCH}}"
+  LISTEN: '{{default "127.0.0.1:9876" .LISTEN}}'
+  MODEL: '{{default "v3_e2e_ctc" .MODEL}}'
+  DEVICE: '{{default "auto" .DEVICE}}'
+  THREADS: '{{default "6" .THREADS}}'
+  KEEP_AUDIO: '{{default "0" .KEEP_AUDIO}}'
+  ENGINE: '{{default "onnx" .ENGINE}}'
+  ONNX_MODEL_DIR: '{{default "build/onnx-int8" .ONNX_MODEL_DIR}}'
+
+env:
+  GOCACHE: "{{.ROOT_DIR}}/.cache/go-build"
+
+tasks:
+  default:
+    desc: Показать доступные команды
+    silent: true
+    cmds:
+      - task --list
+
+  doctor:
+    desc: Проверить инструменты для локальной разработки
+    silent: true
+    cmds:
+      - |
+        failed=0
+        check_command() {
+          if command -v "$1" >/dev/null 2>&1; then
+            case "$1" in
+              go) version="$(go version 2>&1)" ;;
+              ffmpeg) version="$(ffmpeg -version 2>&1 | head -n 1)" ;;
+              *) version="$("$1" --version 2>&1 | head -n 1)" ;;
+            esac
+            printf "✓ %-10s %s\n" "$1" "$version"
+          else
+            printf "✗ %-10s не найден\n" "$1"
+            failed=1
+          fi
+        }
+
+        check_command task
+        check_command go
+        check_command node
+        check_command npm
+        check_command "{{.PYTHON}}"
+        check_command ffmpeg
+
+        expected_go="$(awk '$1 == "golang" { print $2 }' "{{.ROOT_DIR}}/.tool-versions")"
+        if [ -n "$expected_go" ]; then
+          actual_go="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
+          if [ "$actual_go" = "$expected_go" ]; then
+            printf "✓ %-10s %s соответствует .tool-versions\n" "go-версия" "$actual_go"
+          else
+            printf "✗ %-10s %s, ожидается %s; выполни asdf install\n" \
+              "go-версия" "${actual_go:-неизвестна}" "$expected_go"
+            failed=1
+          fi
+        fi
+
+        if [ -x "{{.VENV_PYTHON}}" ]; then
+          printf "✓ %-10s %s\n" "venv" "$("{{.VENV_PYTHON}}" --version 2>&1)"
+        else
+          printf "! %-10s ещё не создан; выполни task setup\n" "venv"
+        fi
+
+        if [ -d "{{.ROOT_DIR}}/extension/node_modules" ]; then
+          printf "✓ %-10s зависимости установлены\n" "extension"
+        else
+          printf "! %-10s зависимости не установлены; выполни task setup\n" "extension"
+        fi
+
+        if [ "$failed" -ne 0 ]; then
+          printf "\nУстанови недостающие инструменты и повтори task doctor.\n"
+          exit 1
+        fi
+
+  setup:
+    desc: Установить Python- и Node.js-зависимости
+    deps:
+      - service:setup
+      - extension:setup
+
+  model:
+    desc: Экспортировать GigaAM в ONNX и собрать int8-модель для task run и сборки .app
+    preconditions:
+      - sh: test -x "{{.VENV_PYTHON}}"
+        msg: Сначала установи зависимости командой task setup
+    status:
+      - test -f build/onnx-int8/v3_e2e_ctc.int8.onnx
+    cmds:
+      - '"{{.VENV_PYTHON}}" service/tools/export_onnx.py'
+      - '"{{.VENV_PYTHON}}" service/tools/quantize_onnx.py --variant int8'
+
+  run:
+    desc: Запустить новый локальный desktop control plane
+    aliases: [start]
+    cmds:
+      - task: desktop:run
+
+  dev:
+    desc: Запустить desktop control plane и сборку расширения в watch-режиме
+    deps:
+      - desktop:run
+      - extension:dev
+
+  test:
+    desc: Запустить все тесты
+    deps:
+      - desktop:test
+      - service:test
+      - extension:test
+
+  lint:
+    desc: Проверить Go и изменённые файлы расширения
+    deps:
+      - desktop:lint
+      - extension:lint
+
+  build:
+    desc: Собрать desktop-бинарники для macOS/Linux и Chrome-расширение
+    deps:
+      - desktop:build
+      - extension:build
+
+  build:macos:
+    desc: Собрать macOS arm64-бинарник и Chrome-расширение
+    deps:
+      - desktop:build:macos
+      - extension:build
+
+  build:linux:
+    desc: Собрать Linux-бинарник и Chrome-расширение
+    deps:
+      - desktop:build:linux
+      - extension:build
+
+  icons:
+    desc: Пересобрать все иконки Rechiv
+    deps:
+      - desktop:icons:macos
+      - extension:icons
+
+  check:
+    desc: Выполнить основные проверки перед коммитом
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+      - git diff --check
+
+  clean:
+    desc: Удалить сборки и локальные кэши
+    cmds:
+      - rm -rf "{{.BUILD_DIR}}"
+      - rm -rf "{{.ROOT_DIR}}/extension/dist"
+      - rm -rf "{{.ROOT_DIR}}/.cache"
+      - rm -rf "{{.ROOT_DIR}}/.task"
+      - rm -rf "{{.ROOT_DIR}}/service/.pytest_cache"
+      - find "{{.ROOT_DIR}}/service" -maxdepth 1 -type d -name "*.egg-info" -prune -exec rm -rf {} +
+      - find "{{.ROOT_DIR}}/desktop" "{{.ROOT_DIR}}/service" -type d -name __pycache__ -prune -exec rm -rf {} +
+
+  clean:all:
+    desc: Удалить также установленные Python- и Node.js-зависимости
+    deps: [clean]
+    cmds:
+      - rm -rf "{{.VENV_DIR}}"
+      - rm -rf "{{.ROOT_DIR}}/extension/node_modules"
+
+  desktop:python-runtime:
+    desc: Собрать переносимый Python-рантайм для macOS Apple Silicon
+    cmds:
+      - ./scripts/build-python-runtime.sh
+
+  desktop:ffmpeg:
+    desc: Собрать минимальный ffmpeg для macOS Apple Silicon
+    cmds:
+      - ./scripts/build-ffmpeg.sh
+
+  desktop:app:
+    desc: Собрать Rechiv.app для macOS Apple Silicon
+    # Части собираются долго и меняются редко, поэтому в зависимости не вынесены:
+    # собери их один раз задачами desktop:python-runtime и desktop:ffmpeg.
+    # Расширение и веб-интерфейс собираются из одного дерева и едут в бандл
+    # вместе: пересобрать одно и забыть другое — значит увезти в .app половину
+    # изменений, причём молча.
+    deps:
+      - extension:build
+      - extension:build:web
+    cmds:
+      - ./scripts/build-app.sh
+
+  desktop:run:
+    desc: Запустить Go-приложение с GigaAM worker
+    dir: desktop
+    preconditions:
+      - sh: test -x "{{.VENV_PYTHON}}"
+        msg: Сначала установи зависимости командой task setup
+      - sh: test "{{.ENGINE}}" != onnx || test -d "{{.ROOT_DIR}}/{{.ONNX_MODEL_DIR}}"
+        msg: Нет модели в {{.ONNX_MODEL_DIR}}. Собери её командой task model
+      - sh: command -v ffmpeg >/dev/null 2>&1
+        msg: ffmpeg не найден. На macOS установи его командой brew install ffmpeg
+    cmds:
+      - >-
+        go run ./cmd/rechiv
+        -listen "{{.LISTEN}}"
+        -python "{{.VENV_PYTHON}}"
+        -engine-worker "{{.ROOT_DIR}}/desktop/engine/worker.py"
+        -service-dir "{{.ROOT_DIR}}/service"
+        -model "{{.MODEL}}"
+        -device "{{.DEVICE}}"
+        -threads "{{.THREADS}}"
+        -engine "{{.ENGINE}}"
+        -onnx-model-dir "{{.ROOT_DIR}}/{{.ONNX_MODEL_DIR}}"
+        {{if eq .KEEP_AUDIO "1"}}-keep-audio{{end}}
+
+  desktop:token:
+    desc: Показать Bearer-токен локального desktop API
+    silent: true
+    cmds:
+      - |
+        case "$(uname -s)" in
+          Darwin)
+            token_file="$HOME/Library/Application Support/Rechiv/api_token"
+            ;;
+          Linux)
+            token_file="$HOME/.rechiv/api_token"
+            ;;
+          *)
+            echo "Неподдерживаемая операционная система: $(uname -s)" >&2
+            exit 1
+            ;;
+        esac
+        if [ ! -s "$token_file" ]; then
+          echo "Токен ещё не создан. Сначала запусти приложение командой task run." >&2
+          exit 1
+        fi
+        tr -d '\r\n' < "$token_file"
+        printf '\n'
+
+  desktop:test:
+    desc: Запустить Go-тесты
+    dir: desktop
+    cmds:
+      - go test ./...
+
+  desktop:test:race:
+    desc: Запустить Go-тесты с race detector
+    dir: desktop
+    cmds:
+      - go test -race ./...
+
+  desktop:lint:
+    desc: Запустить go vet
+    dir: desktop
+    cmds:
+      - go vet ./...
+
+  desktop:format:
+    desc: Отформатировать Go-код
+    dir: desktop
+    cmds:
+      - go fmt ./...
+
+  desktop:build:
+    desc: Собрать desktop-бинарники для macOS arm64 и Linux amd64
+    deps:
+      - desktop:build:macos
+      - desktop:build:linux
+
+  desktop:build:macos:
+    desc: Собрать desktop-бинарник для macOS Apple Silicon
+    dir: desktop
+    cmds:
+      - mkdir -p "{{.BUILD_DIR}}"
+      # CGO обязателен: строка меню — это Cocoa. Из-за этого macOS-бинарник
+      # собирается только на macOS, кросс-компиляция отпадает.
+      - >-
+        CGO_ENABLED=1 GOOS=darwin GOARCH=arm64
+        go build -trimpath
+        -o "{{.MACOS_BINARY}}"
+        ./cmd/rechiv
+    sources:
+      - "**/*.go"
+      - go.mod
+    generates:
+      - "{{.MACOS_BINARY}}"
+
+  desktop:build:linux:
+    desc: Собрать desktop-бинарник для Linux (LINUX_ARCH=amd64 или arm64)
+    dir: desktop
+    cmds:
+      - mkdir -p "{{.BUILD_DIR}}"
+      - >-
+        CGO_ENABLED=0 GOOS=linux GOARCH="{{.LINUX_ARCH}}"
+        go build -trimpath
+        -o "{{.LINUX_BINARY}}"
+        ./cmd/rechiv
+    sources:
+      - "**/*.go"
+      - go.mod
+    generates:
+      - "{{.LINUX_BINARY}}"
+
+  service:setup:
+    desc: Создать Python venv и установить GigaAM с dev-зависимостями
+    dir: service
+    preconditions:
+      - sh: command -v "{{.PYTHON}}" >/dev/null 2>&1
+        msg: Python не найден. Укажи доступный бинарник, например task setup PYTHON=python3.12
+    cmds:
+      - test -x .venv/bin/python || "{{.PYTHON}}" -m venv .venv
+      - .venv/bin/python -m pip install --upgrade pip
+      - .venv/bin/python -m pip install -e ".[dev]"
+
+  service:test:
+    desc: Запустить тесты Python-движка GigaAM
+    dir: service
+    preconditions:
+      - sh: test -x .venv/bin/python
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - .venv/bin/python -m pytest -v
+
+  extension:setup:
+    desc: Установить зависимости Chrome-расширения
+    dir: extension
+    preconditions:
+      - sh: command -v npm >/dev/null 2>&1
+        msg: npm не найден. Установи Node.js
+    cmds:
+      - npm ci
+
+  extension:dev:
+    desc: Собирать расширение в watch-режиме
+    dir: extension
+    preconditions:
+      - sh: test -d node_modules
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - npm run dev
+
+  extension:test:
+    desc: Запустить тесты расширения
+    dir: extension
+    preconditions:
+      - sh: test -d node_modules
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - npm test
+
+  extension:test:watch:
+    desc: Запустить тесты расширения в watch-режиме
+    dir: extension
+    preconditions:
+      - sh: test -d node_modules
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - npm run test:watch
+
+  extension:lint:
+    desc: Проверить изменённые файлы расширения через Biome
+    dir: extension
+    preconditions:
+      - sh: test -d node_modules
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - |
+        files="$(git -C "{{.ROOT_DIR}}" ls-files --modified --others --exclude-standard -- extension/src extension/tests | sed 's#^extension/##')"
+        if [ -z "$files" ]; then
+          echo "Нет изменённых файлов расширения"
+          exit 0
+        fi
+        ./node_modules/.bin/biome check $files
+
+  extension:lint:all:
+    desc: Проверить все файлы расширения
+    dir: extension
+    preconditions:
+      - sh: test -d node_modules
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - npm run lint
+
+  extension:format:
+    desc: Отформатировать расширение через Biome
+    dir: extension
+    preconditions:
+      - sh: test -d node_modules
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - npm run format
+
+  extension:build:
+    desc: Собрать расширение в extension/dist
+    dir: extension
+    preconditions:
+      - sh: test -d node_modules
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - npm run build
+
+  extension:build:web:
+    desc: Собрать веб-интерфейс приложения в build/webui
+    dir: extension
+    preconditions:
+      - sh: test -d node_modules
+        msg: Сначала установи зависимости командой task setup
+    cmds:
+      - npm run build:web
+
+  extension:icons:
+    desc: Пересобрать PNG-иконки расширения Rechiv из SVG
+    preconditions:
+      - sh: command -v rsvg-convert >/dev/null 2>&1
+        msg: rsvg-convert не найден. На macOS установи его командой brew install librsvg
+    cmds:
+      - |
+        for state in default recording suspended; do
+          for size in 16 48 128; do
+            rsvg-convert -w "$size" -h "$size" \
+              "extension/public/icons/icon-$state.svg" \
+              -o "extension/public/icons/icon-$state-$size.png"
+          done
+        done
+
+  desktop:icons:
+    desc: Пересобрать PNG-иконки desktop-приложения Rechiv
+    preconditions:
+      - sh: command -v rsvg-convert >/dev/null 2>&1
+        msg: rsvg-convert не найден. На macOS установи его командой brew install librsvg
+    cmds:
+      - |
+        for size in 128 256 512 1024; do
+          rsvg-convert -w "$size" -h "$size" \
+            "desktop/assets/icon.svg" \
+            -o "desktop/assets/icon-$size.png"
+        done
+        # Иконка строки меню собирается из отдельного монохромного SVG и
+        # встраивается в бинарник — см. desktop/assets/assets.go.
+        rsvg-convert -w 36 -h 36 \
+          "desktop/assets/menubar.svg" \
+          -o "desktop/assets/menubar.png"
+
+  desktop:icons:macos:
+    desc: Собрать macOS iconset для desktop-приложения Rechiv
+    deps: [desktop:icons]
+    preconditions:
+      - sh: command -v rsvg-convert >/dev/null 2>&1
+        msg: rsvg-convert не найден. На macOS установи его командой brew install librsvg
+    cmds:
+      - |
+        iconset_dir="desktop/assets/Rechiv.iconset"
+        mkdir -p "$iconset_dir"
+        for size in 16 32 128 256 512; do
+          double_size=$((size * 2))
+          rsvg-convert -w "$size" -h "$size" \
+            "desktop/assets/icon.svg" \
+            -o "$iconset_dir/icon_${size}x${size}.png"
+          rsvg-convert -w "$double_size" -h "$double_size" \
+            "desktop/assets/icon.svg" \
+            -o "$iconset_dir/icon_${size}x${size}@2x.png"
+        done

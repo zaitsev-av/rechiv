@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rechiv-engine"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "onnxruntime>=1.18",
+]
+
+[project.optional-dependencies]
+export = [
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "gigaam @ https://github.com/salute-developers/GigaAM/archive/main.zip",
+    "onnx>=1.16",
+    "onnxconverter-common>=1.16",
+]
+dev = [
+    "pytest>=8.0",
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "gigaam @ https://github.com/salute-developers/GigaAM/archive/main.zip",
+    "onnx>=1.16",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rechiv_engine*"]

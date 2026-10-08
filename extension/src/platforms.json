@@ -1,0 +1,14 @@
+[
+  {
+    "id": "wb-stream",
+    "name": "WB Stream",
+    "hosts": ["stream.wb.ru"],
+    "callPath": "/room/"
+  },
+  {
+    "id": "telemost",
+    "name": "Яндекс Телемост",
+    "hosts": ["telemost.yandex.ru"],
+    "callPath": "/j/"
+  }
+]

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Настройки — Rechiv</title>
+    <script src="../shared/theme-boot.js"></script>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="settings.css">
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <div class="page">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="brand-copy">
+            <span class="brand-caption">Meeting intelligence</span>
+            <span class="brand-name">Rechiv</span>
+          </span>
+        </div>
+        <nav class="page-nav" aria-label="Разделы Rechiv">
+          <a href="history.html">Созвоны</a>
+          <a href="settings.html" aria-current="page">Настройки</a>
+        </nav>
+        <span class="local-badge">Данные не покидают компьютер</span>
+      </header>
+
+      <div class="intro">
+        <p class="eyebrow">Настройки</p>
+        <h1>Куда Rechiv обращается</h1>
+        <p class="intro-copy">
+          Запись и распознавание идут на этом компьютере. Наружу уходит только то,
+          что вы отправите на саммари.
+        </p>
+      </div>
+
+      <section id="health" class="health" aria-live="polite">
+        <div class="health-main">
+          <span id="health-dot" class="health-dot" aria-hidden="true"></span>
+          <div>
+            <p id="health-title" class="health-title">Проверяю локальное приложение</p>
+            <p id="health-detail" class="health-detail">Стучусь в сервис на этом компьютере</p>
+          </div>
+        </div>
+        <button id="btn-recheck" class="btn btn-secondary" type="button">Проверить снова</button>
+      </section>
+
+      <form id="settings-form" class="sections" novalidate>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Саммари через LLM</h2>
+              <p class="card-copy">Единственная функция, которая отправляет транскрипт наружу.</p>
+            </div>
+            <span class="scope-badge scope-external">Данные уходят в сеть</span>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="input-llm-url">Адрес API</label>
+            <input id="input-llm-url" type="url" class="input input-mono"
+              placeholder="https://…/v1" spellcheck="false" autocomplete="off">
+            <span class="field-hint">Любой endpoint, совместимый с OpenAI Chat Completions.</span>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="input-llm-model">Модель</label>
+            <input id="input-llm-model" type="text" class="input input-mono"
+              placeholder="Идентификатор модели" spellcheck="false" autocomplete="off">
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="input-llm-api-key">API-токен</label>
+            <div class="input-wrap">
+              <input id="input-llm-api-key" type="password" class="input input-mono"
+                placeholder="Вставьте токен" autocomplete="off">
+              <button id="btn-toggle-key" class="input-action" type="button" aria-pressed="false">
+                Показать
+              </button>
+            </div>
+            <span class="field-hint">Хранится в этом браузере и уходит только на адрес выше.</span>
+          </div>
+
+          <div class="check-row">
+            <button id="btn-check-llm" class="btn btn-secondary" type="button">
+              Проверить подключение
+            </button>
+            <p id="llm-status" class="check-status" role="status"></p>
+          </div>
+
+          <p class="card-note">
+            Пока поля пустые, кнопка «Сделать саммари» в транскрипте остаётся выключенной —
+            и наружу не уходит ничего.
+          </p>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Внешний вид</h2>
+              <p class="card-copy">Тема и палитра применяются сразу, во всех окнах расширения.</p>
+            </div>
+          </div>
+
+          <div class="theme-choice" role="radiogroup" aria-label="Тема оформления">
+            <label class="theme-option">
+              <input type="radio" name="theme" value="light" checked>
+              <span class="theme-swatch theme-swatch-light" aria-hidden="true"></span>
+              <span>Светлая</span>
+            </label>
+            <label class="theme-option">
+              <input type="radio" name="theme" value="dark">
+              <span class="theme-swatch theme-swatch-dark" aria-hidden="true"></span>
+              <span>Тёмная</span>
+            </label>
+          </div>
+
+          <div class="theme-choice palette-choice" role="radiogroup" aria-label="Палитра">
+            <label class="theme-option">
+              <input type="radio" name="palette" value="graphite" checked>
+              <span class="theme-swatch palette-swatch palette-swatch-graphite" aria-hidden="true"></span>
+              <span>Тихий графит</span>
+            </label>
+            <label class="theme-option">
+              <input type="radio" name="palette" value="stone">
+              <span class="theme-swatch palette-swatch palette-swatch-stone" aria-hidden="true"></span>
+              <span>Тёплый камень</span>
+            </label>
+            <label class="theme-option">
+              <input type="radio" name="palette" value="amber">
+              <span class="theme-swatch palette-swatch palette-swatch-amber" aria-hidden="true"></span>
+              <span>Графит с янтарём</span>
+            </label>
+          </div>
+        </section>
+
+        <div class="save-row">
+          <button id="btn-save" class="btn btn-primary" type="submit">Сохранить</button>
+          <p id="save-status" class="save-status" role="status"></p>
+        </div>
+      </form>
+    </div>
+
+    <script src="settings.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,322 @@
+/*
+  Палитра (data-palette) × тема (data-theme). :root — страницы, :host — shadow DOM живой
+  панели. Компоненты берут цвета только отсюда.
+*/
+
+:root,
+:host {
+  color-scheme: light;
+  --ink: #1f2126;
+  --ink-soft: #3a3c42;
+  --muted: #74767c;
+  --muted-light: #a4a6ab;
+  --canvas: #f7f7f5;
+  --theme-swatch-light: #f7f7f5;
+  --theme-swatch-dark: #121315;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-soft: #f0f0ed;
+  --border: rgba(31, 33, 38, 0.09);
+  --border-strong: rgba(31, 33, 38, 0.16);
+
+  --accent: #d9900f;
+  --accent-deep: #b4740a;
+  --accent-soft: #fbf0dc;
+  --accent-glow: rgba(217, 144, 15, 0.28);
+
+  --primary: #1f2126;
+  --primary-hover: #34373e;
+  --primary-text: #ffffff;
+  --primary-disabled: #e4e4e1;
+  --primary-disabled-text: #8e9095;
+
+  --progress: #d9900f;
+  --track: #ececea;
+  --chip-bg: #f0f0ed;
+  --chip-text: #4a4c52;
+
+  /* amber наследует тона участников отсюда. */
+  --speaker-0-bg: #f3e9d6;
+  --speaker-0-fg: #7a5a1e;
+  --speaker-1-bg: #e1eae4;
+  --speaker-1-fg: #3d5c47;
+  --speaker-2-bg: #e7e4ef;
+  --speaker-2-fg: #564e72;
+  --speaker-3-bg: #f0e2de;
+  --speaker-3-fg: #7c4a3f;
+  --speaker-4-bg: #dfe7ef;
+  --speaker-4-fg: #3c566f;
+
+  --danger: #dc2626;
+  --danger-deep: #b91c1c;
+  --danger-soft: #fdecec;
+  --success: #15803d;
+  --success-soft: #e9f6ee;
+  --warning: #b7791f;
+  --warning-soft: #fbf1dd;
+
+  --brand-tile: #1f2228;
+  --brand-glyph: #f5a524;
+
+  /* Образцы палитр не зависят от текущей палитры. */
+  --palette-preview-graphite: #f7f7f5;
+  --palette-preview-graphite-accent: #1f2126;
+  --palette-preview-stone: #f6f4ef;
+  --palette-preview-stone-accent: #b8780f;
+  --palette-preview-amber: #f5f5f4;
+  --palette-preview-amber-accent: #e0950f;
+
+  --shadow-sm: 0 1px 2px rgba(31, 33, 38, 0.05);
+  --shadow-md: 0 4px 14px rgba(31, 33, 38, 0.06);
+  --shadow-lg: 0 10px 30px rgba(31, 33, 38, 0.08);
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  /* Общая ширина страниц «Созвоны», транскрипт и настройки. */
+  --page-width: 1180px;
+  --font-sans:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
+    sans-serif;
+  --font-mono: "SFMono-Regular", "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+:root[data-theme="dark"],
+:host([data-theme="dark"]) {
+  color-scheme: dark;
+  --ink: #ededea;
+  --ink-soft: #d0d0cc;
+  --muted: #8f9095;
+  --muted-light: #6b6c71;
+  --canvas: #121315;
+  --theme-swatch-light: #f7f7f5;
+  --theme-swatch-dark: #121315;
+  --surface: #1a1b1e;
+  --surface-raised: #222327;
+  --surface-soft: #26272b;
+  --border: rgba(237, 237, 234, 0.09);
+  --border-strong: rgba(237, 237, 234, 0.16);
+
+  --accent: #f5a524;
+  --accent-deep: #fbbf47;
+  --accent-soft: rgba(245, 165, 36, 0.14);
+  --accent-glow: rgba(245, 165, 36, 0.3);
+
+  --primary: #ededea;
+  --primary-hover: #ffffff;
+  --primary-text: #121315;
+  --primary-disabled: #2a2b2f;
+  --primary-disabled-text: #6b6c71;
+
+  --progress: #f5a524;
+  --track: #2a2b2f;
+  --chip-bg: #26272b;
+  --chip-text: #c4c4c0;
+
+  --speaker-0-bg: #3a3123;
+  --speaker-0-fg: #e6c78c;
+  --speaker-1-bg: #25332a;
+  --speaker-1-fg: #a8c8b2;
+  --speaker-2-bg: #2e2c3b;
+  --speaker-2-fg: #c3bbdc;
+  --speaker-3-bg: #3a2a27;
+  --speaker-3-fg: #dcb2a6;
+  --speaker-4-bg: #25303b;
+  --speaker-4-fg: #a9c1d7;
+
+  --danger: #f87171;
+  --danger-deep: #fca5a5;
+  --danger-soft: rgba(248, 113, 113, 0.13);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.12);
+  --warning: #f5b14c;
+  --warning-soft: rgba(245, 177, 76, 0.13);
+
+  --brand-tile: #2b2f36;
+  --brand-glyph: #f5a524;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+/* Тёплый камень */
+
+:root[data-palette="stone"],
+:host([data-palette="stone"]) {
+  --ink: #24221e;
+  --ink-soft: #3d3a33;
+  --muted: #7a756c;
+  --muted-light: #aaa499;
+  --canvas: #f6f4ef;
+  --theme-swatch-light: #f6f4ef;
+  --theme-swatch-dark: #151412;
+  --surface: #fffdf9;
+  --surface-raised: #ffffff;
+  --surface-soft: #f1ede4;
+  --border: rgba(36, 34, 30, 0.09);
+  --border-strong: rgba(36, 34, 30, 0.16);
+
+  --accent: #b8780f;
+  --accent-deep: #96600a;
+  --accent-soft: #f3ede1;
+  --accent-glow: rgba(184, 120, 15, 0.26);
+
+  --primary: #b8780f;
+  --primary-hover: #a0680b;
+  --primary-text: #ffffff;
+  --primary-disabled: #ebe6dc;
+  --primary-disabled-text: #9a948a;
+
+  --progress: #b8780f;
+  --track: #ece7dc;
+  --chip-bg: #f3ede1;
+  --chip-text: #7a5a1e;
+
+  --speaker-0-bg: #efe4cf;
+  --speaker-0-fg: #7a5a1e;
+  --speaker-1-bg: #dfe7e0;
+  --speaker-1-fg: #3f5e49;
+  --speaker-2-bg: #e4e0ea;
+  --speaker-2-fg: #58506e;
+  --speaker-3-bg: #ecdfdb;
+  --speaker-3-fg: #7a4a3e;
+  --speaker-4-bg: #dde4ea;
+  --speaker-4-fg: #3f566b;
+
+  --danger: #c8312b;
+  --danger-deep: #a8241f;
+  --danger-soft: #fbeae8;
+  --success: #3f7a52;
+  --success-soft: #e8f1ea;
+  --warning: #b8780f;
+  --warning-soft: #f6ecd8;
+
+  --brand-tile: #2b2a27;
+
+  --shadow-sm: 0 1px 2px rgba(36, 34, 30, 0.05);
+  --shadow-md: 0 4px 14px rgba(36, 34, 30, 0.06);
+  --shadow-lg: 0 10px 30px rgba(36, 34, 30, 0.08);
+}
+
+:root[data-palette="stone"][data-theme="dark"],
+:host([data-palette="stone"][data-theme="dark"]) {
+  --ink: #efebe3;
+  --ink-soft: #d6d0c4;
+  --muted: #9a948a;
+  --muted-light: #6e695f;
+  --canvas: #151412;
+  --theme-swatch-light: #f6f4ef;
+  --theme-swatch-dark: #151412;
+  --surface: #1e1c19;
+  --surface-raised: #25221e;
+  --surface-soft: #2b2823;
+  --border: rgba(239, 235, 227, 0.09);
+  --border-strong: rgba(239, 235, 227, 0.16);
+
+  --accent: #e0a23a;
+  --accent-deep: #ecbb63;
+  --accent-soft: rgba(224, 162, 58, 0.15);
+  --accent-glow: rgba(224, 162, 58, 0.3);
+
+  --primary: #d99a2b;
+  --primary-hover: #e6aa40;
+  --primary-text: #1a1712;
+  --primary-disabled: #2c2924;
+  --primary-disabled-text: #6e695f;
+
+  --progress: #e0a23a;
+  --track: #2c2924;
+  --chip-bg: #2b2620;
+  --chip-text: #e2c48a;
+
+  --speaker-0-bg: #3a3022;
+  --speaker-0-fg: #e2c48a;
+  --speaker-1-bg: #26332b;
+  --speaker-1-fg: #a8c7b1;
+  --speaker-2-bg: #2f2b38;
+  --speaker-2-fg: #c2b9d6;
+  --speaker-3-bg: #3a2a26;
+  --speaker-3-fg: #d9b0a4;
+  --speaker-4-bg: #26303a;
+  --speaker-4-fg: #a9bfd3;
+
+  --danger: #f07167;
+  --danger-deep: #f59a92;
+  --danger-soft: rgba(240, 113, 103, 0.13);
+  --success: #8cc29c;
+  --success-soft: rgba(140, 194, 156, 0.12);
+  --warning: #e0a23a;
+  --warning-soft: rgba(224, 162, 58, 0.13);
+
+  --brand-tile: #2e2b26;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+/* Графит с янтарём */
+
+:root[data-palette="amber"],
+:host([data-palette="amber"]) {
+  --ink: #1d1f23;
+  --ink-soft: #383a40;
+  --muted: #71737a;
+  --muted-light: #a2a4a9;
+  --canvas: #f5f5f4;
+  --theme-swatch-light: #f5f5f4;
+  --theme-swatch-dark: #111214;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-soft: #efefed;
+  --border: rgba(29, 31, 35, 0.09);
+  --border-strong: rgba(29, 31, 35, 0.16);
+
+  --accent: #e0950f;
+  --accent-deep: #b87708;
+  --accent-soft: #fdf0d8;
+  --accent-glow: rgba(224, 149, 15, 0.3);
+
+  --primary: #e0950f;
+  --primary-hover: #cc860a;
+  --primary-text: #1d1f23;
+  --primary-disabled: #e6e6e3;
+  --primary-disabled-text: #8e9095;
+
+  --progress: #e0950f;
+  --track: #ebebea;
+  --chip-bg: #f0f0ee;
+  --chip-text: #4a4c52;
+}
+
+:root[data-palette="amber"][data-theme="dark"],
+:host([data-palette="amber"][data-theme="dark"]) {
+  --ink: #ececea;
+  --ink-soft: #d0d0cc;
+  --muted: #8e9096;
+  --muted-light: #6a6c71;
+  --canvas: #111214;
+  --theme-swatch-light: #f5f5f4;
+  --theme-swatch-dark: #111214;
+  --surface: #191a1d;
+  --surface-raised: #212226;
+  --surface-soft: #24252a;
+  --border: rgba(236, 236, 234, 0.09);
+  --border-strong: rgba(236, 236, 234, 0.16);
+
+  --accent: #f5a524;
+  --accent-deep: #fbbf47;
+  --accent-soft: rgba(245, 165, 36, 0.14);
+  --accent-glow: rgba(245, 165, 36, 0.3);
+
+  --primary: #f5a524;
+  --primary-hover: #fbb53f;
+  --primary-text: #16181c;
+  --primary-disabled: #28292d;
+  --primary-disabled-text: #6a6c71;
+
+  --progress: #f5a524;
+  --track: #28292d;
+  --chip-bg: #24252a;
+  --chip-text: #c4c4c0;
+}
