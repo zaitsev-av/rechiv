@@ -2,6 +2,7 @@ import { createPageSttApiClient, type SttApiClient } from "@shared/api-client";
 import { fetchModelInfo, getConfig, isLlmConfigured } from "@shared/config";
 import { startInlineEdit } from "@shared/inline-edit";
 import { generateSummary } from "@shared/llm-client";
+import { ensureLlmPermission, LLM_PERMISSION_DENIED } from "@shared/llm-permission";
 import { setupScrollTop } from "@shared/scroll-top";
 import { speakerInitials } from "@shared/speaker-initials";
 import { applyAppearance, watchThemeChanges } from "@shared/theme";
@@ -27,6 +28,7 @@ let summaryGenerating = false;
 let summaryBaseline = "";
 let transcriptIsFinal = false;
 let llmConfigured = false;
+let llmUrl = "";
 let livePollTimer: ReturnType<typeof setInterval> | null = null;
 let finalFeaturesInitialized = false;
 const hiddenSpeakers = new Set<string>();
@@ -37,6 +39,7 @@ async function init() {
   const config = await getConfig();
   applyAppearance(config);
   llmConfigured = isLlmConfigured(config);
+  llmUrl = config.llmUrl;
   apiClient = createPageSttApiClient(config.sttServiceUrl);
   sessionId = new URLSearchParams(location.search).get("sessionId") ?? "";
   if (!sessionId) {
@@ -378,7 +381,12 @@ function hideBanner(): void {
 }
 
 async function handleGenerateSummary(e: Event) {
+  const btn = e.currentTarget as HTMLButtonElement;
   if (summaryEditing || summaryGenerating || !transcriptIsFinal) return;
+  if (!(await ensureLlmPermission(llmUrl))) {
+    showBanner(LLM_PERMISSION_DENIED);
+    return;
+  }
   if (
     summaryData?.editedAt &&
     !confirm("Саммари отредактировано вручную. Перегенерировать и потерять правки?")
@@ -386,7 +394,6 @@ async function handleGenerateSummary(e: Event) {
     return;
   summaryGenerating = true;
   updateSummaryEditing();
-  const btn = e.currentTarget as HTMLButtonElement;
   const originalText = btn.textContent!;
   btn.textContent = "Генерация...";
   btn.classList.add("btn-spinner");
@@ -419,7 +426,9 @@ async function handleGenerateSummary(e: Event) {
     btn.textContent = originalText;
     btn.classList.remove("btn-spinner");
     btn.disabled = false;
-    llmConfigured = isLlmConfigured(await getConfig());
+    const config = await getConfig();
+    llmConfigured = isLlmConfigured(config);
+    llmUrl = config.llmUrl;
     updateSummaryButton(llmConfigured);
   }
 }

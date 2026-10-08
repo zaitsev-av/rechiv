@@ -352,8 +352,10 @@ describe("transcript page (module integration)", () => {
     });
     vi.mocked(window.confirm).mockReturnValueOnce(false);
     button("btn-regenerate").click();
-    expect(window.confirm).toHaveBeenCalledWith(
-      "Саммари отредактировано вручную. Перегенерировать и потерять правки?",
+    await vi.waitFor(() =>
+      expect(window.confirm).toHaveBeenCalledWith(
+        "Саммари отредактировано вручную. Перегенерировать и потерять правки?",
+      ),
     );
     expect(summaryWrites()).toHaveLength(0);
     button("btn-regenerate").click();

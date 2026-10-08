@@ -2,33 +2,31 @@
 
 import { getConfig } from "@shared/config";
 import type { InterceptorMessage } from "@shared/messages";
-import { platformForHost } from "@shared/platform";
 import { RecordingStorage } from "@shared/storage";
 import type { VadTimeline } from "@shared/types";
 import { retry } from "@shared/utils";
-import { DomParser } from "./dom-parser";
+import { domParser } from "./dom-parser";
 import { showLiveTranscriptOverlay } from "./live-overlay";
+import { capabilitiesForHost } from "./platforms/registry";
 
-let domParser: DomParser;
 let storage: RecordingStorage;
 let currentSessionId: string | null = null;
 let currentUploadToken: string | null = null;
 let domPollInterval: ReturnType<typeof setInterval> | null = null;
 const knownStreams = new Set<string>();
-/** Стримы, для которых LiveKit дал надёжный маппинг — DOM fallback их не перезаписывает */
-const livekitMappedStreams = new Set<string>();
+// Надёжные привязки адаптера имеют приоритет над догадками DOM.
+const adapterMappedStreams = new Set<string>();
 const identifiedNames = new Map<string, string>();
 let pendingVadTimeline: VadTimeline | undefined;
 let captureStopAcknowledged = false;
 
 const PREFIX = "[Rechiv:injector]";
 
-const mixedAudioPlatform = platformForHost(location.host)?.id === "telemost";
+const mixedAudioPlatform = capabilitiesForHost(location.host).audio === "mixed";
 
 async function init() {
   const config = await getConfig();
   console.log(PREFIX, "init, sttServiceUrl:", config.sttServiceUrl);
-  domParser = new DomParser();
   storage = new RecordingStorage();
 
   window.addEventListener("message", handleInterceptorMessage);
@@ -196,7 +194,7 @@ async function startCapture(sessionId: string, uploadToken?: string) {
   currentUploadToken = uploadToken ?? null;
   pendingVadTimeline = undefined;
   captureStopAcknowledged = false;
-  livekitMappedStreams.clear();
+  adapterMappedStreams.clear();
   identifiedNames.clear();
   const config = await getConfig();
   window.postMessage(
@@ -271,9 +269,9 @@ async function flushChunkBuffer(sessionId: string) {
 
 function handleSpeakerMap(map: Record<string, string>) {
   if (!currentSessionId) return;
-  console.log(PREFIX, "LiveKit speaker map:", map);
+  console.log(PREFIX, "Adapter speaker map:", map);
   for (const [streamId, name] of Object.entries(map)) {
-    livekitMappedStreams.add(streamId);
+    adapterMappedStreams.add(streamId);
     sendSpeakerName(currentSessionId, streamId, name);
   }
 }
@@ -306,7 +304,7 @@ function sendSpeakerName(sessionId: string, speakerId: string, name: string) {
 }
 
 function pollDomForNames(sessionId: string) {
-  let unmappedStreams = [...knownStreams].filter((id) => !livekitMappedStreams.has(id));
+  let unmappedStreams = [...knownStreams].filter((id) => !adapterMappedStreams.has(id));
 
   // Удалённый поток здесь — микс комнаты, любое имя на нём ложно.
   if (mixedAudioPlatform) {

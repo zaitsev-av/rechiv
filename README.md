@@ -158,7 +158,8 @@ curl -H "Authorization: Bearer $(task --silent desktop:token)" \
 ```
 
 The local application token is not an external LLM token. The summary token is set
-separately in the extension settings.
+separately in the extension settings. The first time you check, save or use an LLM address,
+Chrome asks for access to that address: the extension requests only the host you configured.
 
 ## Main commands
 

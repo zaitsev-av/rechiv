@@ -5,25 +5,21 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1/yINcVCGD/cRq7krWQUZAjKS8rKoHFEYbjTziTrgXow0LsNXe2cPi53A2QVWVaMT3DZqAT5C8XfsATmtvsmFFOdhxiJAHjvmfhdvyB/9+EQguMIZbEtqF3JpPzmX8TX7GPs1wzoLHwbDHPaGg2yKp0uX7SEGtGoeb0WCDnjqr2HQ7Pcs7ZoOhiqKZXOaWv1sX/LiY2YHr/JLwkueFZgCP/ozDFx4aqG1X8FgLPSh4j4e8K5ALf8lv0saafRNnvuSoQvwoE5JoUeh0WEJKPprf+c6W8S2IRrJi1HgFRZQzZ00UsMnbHBVxyykvqpDLptspIFATF5ZjfzTe/ZgA5btwIDAQAB",
   "description": "Локальная запись, транскрибация и анализ созвонов",
   "permissions": ["tabs", "notifications", "storage", "alarms"],
-  "host_permissions": [
-    "https://stream.wb.ru/*",
-    "https://telemost.yandex.ru/*",
-    "http://localhost:9876/*",
-    "http://127.0.0.1:9876/*"
-  ],
+  "host_permissions": [],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["https://stream.wb.ru/*", "https://telemost.yandex.ru/*"],
+      "matches": [],
       "js": ["content/injector.js", "content/dom-parser.js"],
       "run_at": "document_start",
       "all_frames": true
     },
     {
-      "matches": ["https://stream.wb.ru/*", "https://telemost.yandex.ru/*"],
+      "matches": [],
       "js": ["content/interceptor.js"],
       "run_at": "document_start",
       "world": "MAIN",

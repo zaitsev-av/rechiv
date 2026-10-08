@@ -1,14 +1,19 @@
 import descriptors from "../platforms.json";
 
+export interface PlatformCapabilities {
+  audio: "mixed" | "per-participant";
+}
+
 export interface PlatformDescriptor {
   id: string;
   name: string;
   hosts: string[];
+  capabilities: PlatformCapabilities;
   /** Без неё звонком считается любая страница хоста. */
   callPath?: string;
 }
 
-export const PLATFORMS: PlatformDescriptor[] = descriptors;
+export const PLATFORMS: PlatformDescriptor[] = descriptors as PlatformDescriptor[];
 
 export const platformForUrl = (url: string | undefined): PlatformDescriptor | null => {
   if (!url) return null;

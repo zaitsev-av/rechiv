@@ -6,6 +6,7 @@ import {
 } from "@shared/appearance-controls";
 import { DEFAULT_STT_URL, getConfig, saveConfig } from "@shared/config";
 import { checkLlmAccess } from "@shared/llm-client";
+import { ensureLlmPermission, LLM_PERMISSION_DENIED } from "@shared/llm-permission";
 import { applyAppearance, applySavedTheme, watchThemeChanges } from "@shared/theme";
 import { getErrorMessage } from "@shared/utils";
 
@@ -107,6 +108,12 @@ form.addEventListener("submit", async (event) => {
   }
   markInvalid([]);
 
+  const llmUrl = llmUrlInput.value.trim();
+  if (llmUrl && !(await ensureLlmPermission(llmUrl))) {
+    setStatus(saveStatus, LLM_PERMISSION_DENIED, "error");
+    return;
+  }
+
   try {
     await saveConfig({
       llmUrl: llmUrlInput.value.trim(),
@@ -131,6 +138,10 @@ checkLlmButton.addEventListener("click", async () => {
   }
   markInvalid([]);
 
+  if (!(await ensureLlmPermission(llmUrlInput.value.trim()))) {
+    setStatus(llmStatus, LLM_PERMISSION_DENIED, "error");
+    return;
+  }
   checkLlmButton.disabled = true;
   setStatus(llmStatus, "Проверяю…");
   try {

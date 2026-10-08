@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TelemostPageAdapter } from "../src/content/platforms/page/telemost";
+import { TelemostPageAdapter } from "../src/content/platforms/telemost/page";
 
 const LOCAL_ID = "b42be91e-f9db-4f67-a9fc-fe582918ec3f";
 const REMOTE_ID = "1ecaeaa3-2a8d-432b-9292-80ba70d24912";

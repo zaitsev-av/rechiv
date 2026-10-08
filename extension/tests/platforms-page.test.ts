@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GenericPageAdapter } from "../src/content/platforms/page/generic";
-import { pickPageAdapter } from "../src/content/platforms/page/index";
-import { getLiveKitRoom, LiveKitPageAdapter } from "../src/content/platforms/page/livekit";
+import { GenericPageAdapter } from "../src/content/platforms/generic/page";
+import { pickPageAdapter } from "../src/content/platforms/registry";
+import { getLiveKitRoom, LiveKitPageAdapter } from "../src/content/platforms/wb-stream/page";
 
 function mountRoom(room: any): HTMLElement {
   const container = document.createElement("div");

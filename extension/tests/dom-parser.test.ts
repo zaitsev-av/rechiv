@@ -6,7 +6,7 @@ describe("DomParser", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "";
-    parser = new DomParser();
+    parser = new DomParser("stream.wb.ru");
   });
 
   it("finds participant name by stream id", () => {

@@ -1,8 +1,8 @@
-import { platformForHost } from "@shared/platform";
 import { applySavedTheme, watchThemeChanges } from "@shared/theme";
 import tokenStyles from "@shared/theme-tokens.css?inline";
 import type { LiveTranscriptResult } from "@shared/types";
 import { plural } from "@shared/utils";
+import { capabilitiesForHost } from "./platforms/registry";
 
 const STORAGE_KEY = "liveTranscriptOverlayBounds";
 const POLL_INTERVAL_MS = 2000;
@@ -753,7 +753,7 @@ export class LiveTranscriptOverlay {
     this.status = this.getElement("[data-role='status']");
     this.meta = this.getElement("[data-role='meta']");
     this.notice = this.getElement("[data-role='notice']");
-    this.mixedAudioPlatform = platformForHost(location.host)?.id === "telemost";
+    this.mixedAudioPlatform = capabilitiesForHost(location.host).audio === "mixed";
     this.feed = this.getElement("[data-role='feed']");
     this.latestButton = this.getElement("[data-role='latest']");
     this.progressLabel = this.getElement("[data-role='progress-label']");

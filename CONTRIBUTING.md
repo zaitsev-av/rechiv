@@ -23,6 +23,23 @@ task check
 CI (`.github/workflows/ci.yml`) runs lint, tests and builds for the extension and the
 Go application.
 
+## Adding a platform
+
+- Add `id`, `name`, `hosts`, optional `callPath` and `capabilities.audio`
+  (`mixed` or `per-participant`) to `extension/src/platforms.json`. Both extension
+  builds generate manifest permissions and matches from this registry.
+- Create `content/platforms/<id>/page.ts` and `dom.ts` and register their factories
+  in `content/platforms/registry.ts`. Generic DOM guesses can be inherited.
+- `PageAdapter` requires `id`, `getSpeakerMap`, `isLocalMuted`,
+  `syncMuteSubscription`, and `teardown`. Speaker maps must be reliable: DOM never
+  overwrites them. Signaling installation, remote-track tracking, VAD capture and
+  chunk attribution are optional (see `platforms/types.ts`). `DomAdapter` requires
+  `findParticipantName`, `getAllParticipantNames`, and `getLocalParticipantName`.
+- Test host/capability and adapter selection, platform DOM fixtures (including
+  cameras off and the local participant), speaker mapping and mute behavior.
+  Update `allowedPageOrigins` in `desktop/internal/api/server.go`; the adjacent
+  registry test checks it against the JSON. Run the checks above.
+
 ## Privacy
 
 Never commit recordings, transcripts, call logs or real participant names. Call
@@ -50,6 +67,23 @@ task check
 
 CI (`.github/workflows/ci.yml`) запускает линтер, тесты и сборку расширения
 и Go-приложения.
+
+## Как добавить площадку
+
+- Добавьте `id`, `name`, `hosts`, необязательный `callPath` и `capabilities.audio`
+  (`mixed` или `per-participant`) в `extension/src/platforms.json`. Обе сборки
+  расширения генерируют разрешения и matches манифеста из этого реестра.
+- Создайте `content/platforms/<id>/page.ts` и `dom.ts`, зарегистрируйте их фабрики
+  в `content/platforms/registry.ts`. Общие DOM-догадки можно унаследовать.
+- В `PageAdapter` обязательны `id`, `getSpeakerMap`, `isLocalMuted`,
+  `syncMuteSubscription` и `teardown`. Маппинг потоков должен быть надёжным: DOM его
+  не перезаписывает. Установка перехвата сигналинга, учёт удалённых треков, захват VAD
+  и атрибуция чанков необязательны (см. `platforms/types.ts`). В `DomAdapter` обязательны
+  `findParticipantName`, `getAllParticipantNames` и `getLocalParticipantName`.
+- Добавьте тесты выбора по хосту, возможностей и адаптеров, DOM площадки (включая
+  выключенные камеры и локального участника), маппинга и мьюта. Обновите
+  `allowedPageOrigins` в `desktop/internal/api/server.go`: соседний тест сверяет его
+  с JSON. Выполните проверки выше.
 
 ## Приватность
 

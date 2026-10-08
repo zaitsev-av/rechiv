@@ -10,6 +10,7 @@ export interface PageAdapter {
   getVadTimeline?(): VadTimeline;
   /** Для площадок с комнатным миксом. null, если ответ неоднозначен: ложное имя хуже. */
   attributeChunk?(start: number, end: number): { participantId: string; name: string } | null;
+  /** Надёжные привязки потоков: DOM fallback не должен их перезаписывать. */
   getSpeakerMap(): Record<string, string> | null;
   isLocalMuted(): boolean;
   syncMuteSubscription(onChange: (muted: boolean) => void): void;

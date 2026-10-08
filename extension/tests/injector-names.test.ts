@@ -7,7 +7,7 @@ const domParser = {
   getLocalParticipantName: vi.fn<() => string | null>(),
 };
 vi.mock("../src/content/dom-parser", () => ({
-  DomParser: vi.fn(() => domParser),
+  domParser,
 }));
 vi.mock("../src/content/live-overlay", () => ({
   showLiveTranscriptOverlay: vi.fn(),
@@ -84,6 +84,26 @@ describe("имена потоков на площадке со смешанны�
     expect(identified()).toContainEqual(
       expect.objectContaining({ speakerId: "remote-a", name: "Борис" }),
     );
+  });
+
+  it("DOM не перезаписывает надёжный маппинг адаптера", async () => {
+    await runInjector("stream.wb.ru");
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: { type: "RECHIV_SPEAKER_MAP", map: { "remote-a": "Имя из адаптера" } },
+      }),
+    );
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(identified()).toContainEqual(
+      expect.objectContaining({ speakerId: "remote-a", name: "Имя из адаптера" }),
+    );
+    vi.mocked(chrome.runtime.sendMessage).mockClear();
+    domParser.findParticipantName.mockClear();
+    vi.advanceTimersByTime(5100);
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(domParser.findParticipantName).not.toHaveBeenCalledWith("remote-a");
+    expect(identified().filter((m) => m.speakerId === "remote-a")).toEqual([]);
   });
 });
 

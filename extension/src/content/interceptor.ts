@@ -6,7 +6,7 @@ import {
   watchPeerConnection,
   watchWebSockets,
 } from "./platforms/diagnostics";
-import { pickPageAdapter } from "./platforms/page";
+import { pickPageAdapter } from "./platforms/registry";
 import { rootMeanSquare, SPEECH_LEVEL, SpeechGate } from "./speech-gate";
 
 const MIME_TYPE = "audio/webm;codecs=opus";
@@ -192,7 +192,7 @@ function interceptGetUserMedia(): void {
           audioTracks.length,
         );
 
-        // LiveKit заново вызывает getUserMedia при вкл/выкл микрофона.
+        // Повторный getUserMedia заменяет локальный поток: старый рекордер больше не нужен.
         const prevRec = recorders.get(id);
         if (prevRec && prevRec.state !== "inactive") {
           console.log(PREFIX, "stopping previous local recorder");
@@ -212,7 +212,7 @@ function interceptGetUserMedia(): void {
 
         detachLevelMeter(id);
 
-        // Клон LiveKit не останавливает при мьюте.
+        // Клон переживает остановку исходного трека страницей; мьют отслеживает адаптер.
         const recordingStream = new MediaStream(audioTracks.map((t) => t.clone()));
         streams.set(id, { stream: recordingStream, kind: "local" });
         if (!knownSpeakers.has(id)) {
