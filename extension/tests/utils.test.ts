@@ -7,6 +7,7 @@ import {
   plural,
   retry,
 } from "../src/shared/utils";
+import { chromeMock } from "./setup";
 
 describe("plural", () => {
   it("returns 'one' form for 1", () => {
@@ -41,7 +42,7 @@ describe("formatDateTime", () => {
 
 describe("названия из старых версий", () => {
   beforeEach(() => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+    chromeMock.storage.local.get.mockResolvedValue({});
     vi.mocked(chrome.storage.local.set).mockClear();
   });
 
@@ -50,12 +51,12 @@ describe("названия из старых версий", () => {
   });
 
   it("читает сохранённые ранее названия", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ sessionTitles: { abc: "My Call" } });
+    chromeMock.storage.local.get.mockResolvedValue({ sessionTitles: { abc: "My Call" } });
     expect((await getLegacyTitles()).abc).toBe("My Call");
   });
 
   it("удаляет перенесённое название", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({
+    chromeMock.storage.local.get.mockResolvedValue({
       sessionTitles: { abc: "My Call", other: "Ещё звонок" },
     });
 
@@ -67,7 +68,7 @@ describe("названия из старых версий", () => {
   });
 
   it("ничего не пишет, если названия уже нет", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ sessionTitles: {} });
+    chromeMock.storage.local.get.mockResolvedValue({ sessionTitles: {} });
 
     await dropLegacyTitle("abc");
 

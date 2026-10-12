@@ -9,7 +9,8 @@
     "build:web": "tsc --noEmit && node scripts/build-web.mjs",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
-    "lint": "biome check src/ tests/",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tests",
+    "lint": "biome check src/ tests/ && npm run typecheck",
     "lint:fix": "biome check --write src/ tests/",
     "format": "biome format --write src/ tests/"
   },

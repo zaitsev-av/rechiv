@@ -7,7 +7,7 @@ import {
   SYSTEM_PROMPT_MAIN,
   SYSTEM_PROMPT_MAP,
 } from "../src/shared/llm-client";
-import type { TranscriptResult } from "../src/shared/types";
+import type { Segment, TranscriptResult } from "../src/shared/types";
 
 describe("промпты саммари", () => {
   it("не требуют роль для каждого участника", () => {
@@ -37,10 +37,28 @@ describe("estimateTokens", () => {
 });
 
 describe("chunkSegments", () => {
-  const segments = [
-    { speaker: "Иван", start: "00:00:00", end: "00:00:10", text: "А".repeat(300) },
-    { speaker: "Мария", start: "00:00:10", end: "00:00:20", text: "Б".repeat(300) },
-    { speaker: "Иван", start: "00:00:20", end: "00:00:30", text: "В".repeat(300) },
+  const segments: Segment[] = [
+    {
+      speakerId: "local",
+      speaker: "Иван",
+      start: "00:00:00",
+      end: "00:00:10",
+      text: "А".repeat(300),
+    },
+    {
+      speakerId: "remote",
+      speaker: "Мария",
+      start: "00:00:10",
+      end: "00:00:20",
+      text: "Б".repeat(300),
+    },
+    {
+      speakerId: "local",
+      speaker: "Иван",
+      start: "00:00:20",
+      end: "00:00:30",
+      text: "В".repeat(300),
+    },
   ];
 
   it("возвращает один чанк если всё влезает", () => {
@@ -70,7 +88,9 @@ describe("generateSummary", () => {
     recordingStarted: "2026-03-31T10:00:00",
     duration: "00:01:00",
     participants: [{ speakerId: "local", name: "Иван" }],
-    segments: [{ speaker: "Иван", start: "00:00:00", end: "00:00:05", text: "Привет" }],
+    segments: [
+      { speakerId: "local", speaker: "Иван", start: "00:00:00", end: "00:00:05", text: "Привет" },
+    ],
   };
 
   beforeEach(() => {
@@ -111,6 +131,7 @@ describe("generateSummary", () => {
     const longTranscript: TranscriptResult = {
       ...transcript,
       segments: Array.from({ length: 50 }, (_, i) => ({
+        speakerId: "local",
         speaker: "Иван",
         start: `00:${String(i).padStart(2, "0")}:00`,
         end: `00:${String(i).padStart(2, "0")}:30`,

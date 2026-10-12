@@ -119,6 +119,7 @@ describe("SttApiClient", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(JSON.stringify({ status: "stored" }), { status: 200 }));
     const timeline = {
+      micEvents: [],
       localParticipantId: "local-id",
       participants: [{ participantId: "remote-id", name: "Гость" }],
       events: [{ at: 12.5, active: ["remote-id"] }],

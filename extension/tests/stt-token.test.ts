@@ -1,24 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import {
   cacheSttToken,
   clearCachedSttToken,
   ensureSttToken,
   getCachedSttToken,
 } from "../src/shared/stt-token";
+import { chromeMock } from "./setup";
 
 const STORAGE_KEY = "stt.api.token";
 
 describe("stt-token", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
-    vi.mocked(chrome.storage.local.get).mockReset();
+    chromeMock.storage.local.get.mockReset();
     vi.mocked(chrome.storage.local.set).mockReset();
     vi.mocked(chrome.storage.local.remove).mockReset();
   });
 
   it("returns a cached token", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ [STORAGE_KEY]: "cached" });
+    chromeMock.storage.local.get.mockResolvedValue({ [STORAGE_KEY]: "cached" });
     expect(await getCachedSttToken()).toBe("cached");
   });
 
@@ -30,7 +30,7 @@ describe("stt-token", () => {
   });
 
   it("bootstraps a token from the Go application", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+    chromeMock.storage.local.get.mockResolvedValue({});
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ token: "fresh" }),

@@ -31,6 +31,7 @@ type DiagApi = {
   stats(): Record<string, number>;
   stop(): void;
   audioSlots(count?: number): number;
+  slots(count?: number): number;
   audio(): Record<string, { samples: number; ssrc: number[] }>;
 };
 

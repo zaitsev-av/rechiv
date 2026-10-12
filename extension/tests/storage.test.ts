@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RecordingStorage } from "../src/shared/storage";
+import { chromeMock } from "./setup";
 
 describe("RecordingStorage", () => {
   let storage: RecordingStorage;
 
   beforeEach(() => {
     storage = new RecordingStorage();
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+    chromeMock.storage.local.get.mockResolvedValue({});
     vi.mocked(chrome.storage.local.set).mockResolvedValue(undefined);
   });
 
@@ -23,7 +24,7 @@ describe("RecordingStorage", () => {
   });
 
   it("getActiveSession returns stored session", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({
+    chromeMock.storage.local.get.mockResolvedValue({
       activeSession: { sessionId: "abc123", callUrl: "https://stream.wb.ru/room/test" },
     });
     const session = await storage.getActiveSession();
@@ -41,7 +42,7 @@ describe("RecordingStorage", () => {
   });
 
   it("drops legacy chunks without a session id", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({
+    chromeMock.storage.local.get.mockResolvedValue({
       chunkBuffer: [
         { speakerId: "old", timestamp: 1, data: "old" },
         { sessionId: "s1", speakerId: "new", timestamp: 2, data: "new" },

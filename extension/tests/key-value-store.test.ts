@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChromeKeyValueStore, LocalStorageKeyValueStore } from "../src/shared/key-value-store";
+import { chromeMock } from "./setup";
 
 describe("ChromeKeyValueStore", () => {
   const store = new ChromeKeyValueStore(chrome.storage.local, chrome.storage.onChanged);
@@ -9,7 +10,7 @@ describe("ChromeKeyValueStore", () => {
   });
 
   it("reads, writes and removes values through chrome.storage.local", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ config: { theme: "dark" } });
+    chromeMock.storage.local.get.mockResolvedValue({ config: { theme: "dark" } });
 
     await expect(store.get("config")).resolves.toEqual({ theme: "dark" });
     await store.set("config", { theme: "light" });

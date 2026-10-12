@@ -5,14 +5,19 @@ import {
   SessionController,
   sendToCallFrame,
 } from "../src/background/service-worker";
-import { sessionStore } from "./setup";
+import type { SttApiClient } from "../src/shared/api-client";
+import { mockTab } from "./mocks";
+import { chromeMock, sessionStore } from "./setup";
+import { mockSession, mockSttApi } from "./stt-mocks";
 
 const mockApi = {
-  health: vi.fn(),
-  createSession: vi.fn().mockResolvedValue({ sessionId: "abc123", status: "recording" }),
-  uploadVadTimeline: vi.fn().mockResolvedValue(undefined),
-  finishSession: vi.fn().mockResolvedValue({ status: "processing" }),
-  getSession: vi.fn().mockResolvedValue({ sessionId: "abc123", status: "completed" }),
+  health: vi.fn<SttApiClient["health"]>(),
+  createSession: vi.fn<SttApiClient["createSession"]>().mockResolvedValue(mockSession()),
+  uploadVadTimeline: vi.fn<SttApiClient["uploadVadTimeline"]>().mockResolvedValue(undefined),
+  finishSession: vi.fn<SttApiClient["finishSession"]>().mockResolvedValue({ status: "processing" }),
+  getSession: vi
+    .fn<SttApiClient["getSession"]>()
+    .mockResolvedValue(mockSession({ status: "completed" })),
 };
 
 describe("SessionController", () => {
@@ -21,7 +26,7 @@ describe("SessionController", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApi.health.mockResolvedValue({ status: "ok", engine: { status: "ready" } });
-    ctrl = new SessionController(mockApi as any);
+    ctrl = new SessionController(mockSttApi(mockApi));
   });
 
   it("starts recording", async () => {
@@ -64,6 +69,7 @@ describe("SessionController", () => {
   it("uploads VAD before finishing the session", async () => {
     await ctrl.startRecording("https://telemost.yandex.ru/j/test");
     const timeline = {
+      micEvents: [],
       localParticipantId: "local-id",
       participants: [{ participantId: "remote-id", name: "Гость" }],
       events: [{ at: 1, active: ["remote-id"] }],
@@ -83,7 +89,7 @@ describe("SessionController", () => {
     await ctrl.startRecording("https://telemost.yandex.ru/j/test");
 
     await expect(
-      ctrl.stopRecording({ localParticipantId: "", participants: [], events: [] }),
+      ctrl.stopRecording({ localParticipantId: "", participants: [], events: [], micEvents: [] }),
     ).resolves.toBeUndefined();
 
     expect(mockApi.finishSession).toHaveBeenCalledWith("abc123");
@@ -99,7 +105,7 @@ describe("SessionController", () => {
       "rechiv-transcript-ready",
       expect.objectContaining({ periodInMinutes: expect.any(Number) }),
     );
-    const [notificationId, options] = vi.mocked(chrome.notifications.create).mock.calls[0];
+    const [notificationId, options] = chromeMock.notifications.create.mock.calls[0];
     expect(notificationId).toBe("processing-abc123");
     expect(options?.title).toBe("Транскрипция запущена");
   });
@@ -160,7 +166,7 @@ describe("SessionController", () => {
   });
 
   it("завершает сессию, если вкладку закрыли, пока воркер спал", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValueOnce({
+    chromeMock.storage.local.get.mockResolvedValueOnce({
       activeSession: { sessionId: "abc123", callUrl: "https://stream.wb.ru/room/test", tabId: 7 },
     });
     await ctrl.restoreFromStorage();
@@ -169,10 +175,10 @@ describe("SessionController", () => {
   });
 
   it("продолжает запись после сна воркера, если вкладка жива", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValueOnce({
+    chromeMock.storage.local.get.mockResolvedValueOnce({
       activeSession: { sessionId: "abc123", callUrl: "https://stream.wb.ru/room/test", tabId: 7 },
     });
-    vi.mocked(chrome.tabs.get).mockResolvedValueOnce({ id: 7 } as chrome.tabs.Tab);
+    chromeMock.tabs.get.mockResolvedValueOnce(mockTab({ id: 7 }));
     await ctrl.restoreFromStorage();
     expect(mockApi.finishSession).not.toHaveBeenCalled();
     expect(ctrl.state).toBe("recording");
@@ -193,14 +199,16 @@ describe("checkPendingSessions", () => {
   });
 
   it("уведомляет и снимает сессию с ожидания, когда транскрипт готов", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ pendingSessions: ["abc123"] });
+    chromeMock.storage.local.get.mockResolvedValue({ pendingSessions: ["abc123"] });
     const api = {
-      getSession: vi.fn().mockResolvedValue({ sessionId: "abc123", status: "completed" }),
+      getSession: vi
+        .fn<SttApiClient["getSession"]>()
+        .mockResolvedValue(mockSession({ status: "completed" })),
     };
 
-    await checkPendingSessions(api as any);
+    await checkPendingSessions(mockSttApi(api));
 
-    const [notificationId, options] = vi.mocked(chrome.notifications.create).mock.calls[0];
+    const [notificationId, options] = chromeMock.notifications.create.mock.calls[0];
     expect(notificationId).toBe("transcript-ready-abc123");
     expect(options?.title).toBe("Транскрипт готов");
     expect(chrome.storage.local.set).toHaveBeenCalledWith({ pendingSessions: [] });
@@ -208,29 +216,33 @@ describe("checkPendingSessions", () => {
   });
 
   it("сообщает про ошибки распознавания", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ pendingSessions: ["abc123"] });
+    chromeMock.storage.local.get.mockResolvedValue({ pendingSessions: ["abc123"] });
     const api = {
-      getSession: vi.fn().mockResolvedValue({
-        sessionId: "abc123",
-        status: "error",
-        error: "Не удалось распознать фрагментов: 2",
-      }),
+      getSession: vi.fn<SttApiClient["getSession"]>().mockResolvedValue(
+        mockSession({
+          sessionId: "abc123",
+          status: "error",
+          error: "Не удалось распознать фрагментов: 2",
+        }),
+      ),
     };
 
-    await checkPendingSessions(api as any);
+    await checkPendingSessions(mockSttApi(api));
 
-    const [, options] = vi.mocked(chrome.notifications.create).mock.calls[0];
+    const [, options] = chromeMock.notifications.create.mock.calls[0];
     expect(options?.title).toContain("с ошибками");
     expect(options?.message).toContain("2");
   });
 
   it("продолжает ждать, пока идёт обработка", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ pendingSessions: ["abc123"] });
+    chromeMock.storage.local.get.mockResolvedValue({ pendingSessions: ["abc123"] });
     const api = {
-      getSession: vi.fn().mockResolvedValue({ sessionId: "abc123", status: "processing" }),
+      getSession: vi
+        .fn<SttApiClient["getSession"]>()
+        .mockResolvedValue(mockSession({ status: "processing" })),
     };
 
-    await checkPendingSessions(api as any);
+    await checkPendingSessions(mockSttApi(api));
 
     expect(chrome.notifications.create).not.toHaveBeenCalled();
     expect(chrome.storage.local.set).toHaveBeenCalledWith({ pendingSessions: ["abc123"] });
@@ -238,10 +250,12 @@ describe("checkPendingSessions", () => {
   });
 
   it("не теряет сессию, если сервис недоступен", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ pendingSessions: ["abc123"] });
-    const api = { getSession: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")) };
+    chromeMock.storage.local.get.mockResolvedValue({ pendingSessions: ["abc123"] });
+    const api = {
+      getSession: vi.fn<SttApiClient["getSession"]>().mockRejectedValue(new Error("ECONNREFUSED")),
+    };
 
-    await checkPendingSessions(api as any);
+    await checkPendingSessions(mockSttApi(api));
 
     expect(chrome.storage.local.set).toHaveBeenCalledWith({ pendingSessions: ["abc123"] });
   });
@@ -264,7 +278,7 @@ describe("показ панели живого транскрипта", () => {
   }
 
   beforeEach(() => {
-    vi.mocked(chrome.tabs.query).mockResolvedValue([{ id: 7 }] as never);
+    chromeMock.tabs.query.mockResolvedValue([mockTab({ id: 7 })]);
     vi.mocked(chrome.tabs.sendMessage).mockReset();
   });
 
@@ -292,7 +306,7 @@ describe("показ панели живого транскрипта", () => {
   });
 
   it("сообщает, когда вкладки созвона нет вовсе", async () => {
-    vi.mocked(chrome.tabs.query).mockResolvedValue([] as never);
+    chromeMock.tabs.query.mockResolvedValue([]);
 
     const response = await showLive();
     expect(response.ok).toBe(false);
@@ -333,7 +347,11 @@ describe("сигнал присутствия", () => {
 /** Команда без frameId ушла бы и в оболочку, которая закрыла бы сессию пустым финишем. */
 describe("адресация фрейма звонка", () => {
   const frame = (tabId: number, frameId: number) =>
-    ({ tab: { id: tabId }, frameId, url: "https://telemost.yandex.ru/private-join/1" }) as never;
+    ({
+      tab: mockTab({ id: tabId }),
+      frameId,
+      url: "https://telemost.yandex.ru/private-join/1",
+    }) satisfies chrome.runtime.MessageSender;
 
   beforeEach(() => {
     vi.mocked(chrome.tabs.sendMessage).mockClear();

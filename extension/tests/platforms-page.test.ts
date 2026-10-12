@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GenericPageAdapter } from "../src/content/platforms/generic/page";
 import { pickPageAdapter } from "../src/content/platforms/registry";
+import type { PageAdapter } from "../src/content/platforms/types";
 import { getLiveKitRoom, LiveKitPageAdapter } from "../src/content/platforms/wb-stream/page";
 
 function mountRoom(room: any): HTMLElement {
@@ -31,7 +32,7 @@ describe("pickPageAdapter", () => {
 
 describe("GenericPageAdapter", () => {
   it("records without speaker names and without mute tracking", () => {
-    const adapter = new GenericPageAdapter();
+    const adapter: PageAdapter = new GenericPageAdapter();
     const onChange = vi.fn();
 
     expect(adapter.getSpeakerMap()).toBeNull();

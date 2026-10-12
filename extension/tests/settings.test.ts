@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig, isLlmConfigured } from "../src/shared/config";
+import { chromeMock } from "./setup";
 
 const FILLED_LLM = {
   llmUrl: "https://example.test/v1",
@@ -32,7 +33,7 @@ async function loadSettingsPage(
       <p id="save-status"></p>
     </form>
   `;
-  vi.mocked(chrome.storage.local.get).mockImplementation(async (key) => {
+  chromeMock.storage.local.get.mockImplementation(async (key) => {
     if (key === "config") return { config };
     return {};
   });
@@ -173,15 +174,15 @@ describe("settings page", () => {
 
 describe("isLlmConfigured", () => {
   it("требует адрес, модель и токен разом", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ config: {} });
+    chromeMock.storage.local.get.mockResolvedValue({ config: {} });
     expect(isLlmConfigured(await getConfig())).toBe(false);
 
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({
+    chromeMock.storage.local.get.mockResolvedValue({
       config: { llmUrl: "https://example.test/v1", llmModel: "m" },
     });
     expect(isLlmConfigured(await getConfig())).toBe(false);
 
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ config: FILLED_LLM });
+    chromeMock.storage.local.get.mockResolvedValue({ config: FILLED_LLM });
     expect(isLlmConfigured(await getConfig())).toBe(true);
   });
 });

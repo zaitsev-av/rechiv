@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyPalette, applySavedTheme, applyTheme, watchThemeChanges } from "../src/shared/theme";
 import { readCachedPalette, readCachedTheme } from "../src/shared/theme-cache";
+import { chromeMock } from "./setup";
 
 function pretendExtensionPage(protocol: string) {
   Object.defineProperty(window, "location", {
@@ -15,7 +16,7 @@ describe("application theme", () => {
     vi.clearAllMocks();
     delete document.documentElement.dataset.theme;
     delete document.documentElement.dataset.palette;
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+    chromeMock.storage.local.get.mockResolvedValue({});
     localStorage.clear();
   });
 
@@ -35,7 +36,7 @@ describe("application theme", () => {
     await applySavedTheme();
     expect(document.documentElement.dataset.theme).toBe("light");
 
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({
+    chromeMock.storage.local.get.mockResolvedValue({
       config: { theme: "dark" },
     });
     await applySavedTheme();
@@ -87,13 +88,13 @@ describe("application theme", () => {
     await applySavedTheme();
     expect(document.documentElement.dataset.palette).toBe("graphite");
 
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ config: { palette: "stone" } });
+    chromeMock.storage.local.get.mockResolvedValue({ config: { palette: "stone" } });
     await applySavedTheme();
     expect(document.documentElement.dataset.palette).toBe("stone");
   });
 
   it("неизвестную палитру из хранилища заменяет на графит", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ config: { palette: "purple" } });
+    chromeMock.storage.local.get.mockResolvedValue({ config: { palette: "purple" } });
 
     await applySavedTheme();
 

@@ -5,6 +5,7 @@ import {
   showLiveTranscriptOverlay,
 } from "../src/content/live-overlay";
 import type { LiveTranscriptResult } from "../src/shared/types";
+import { chromeMock } from "./setup";
 
 const liveTranscript: LiveTranscriptResult = {
   sessionId: "session-live",
@@ -36,7 +37,7 @@ describe("live transcript overlay", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     destroyLiveTranscriptOverlay();
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+    chromeMock.storage.local.get.mockResolvedValue({});
     vi.mocked(chrome.runtime.sendMessage).mockImplementation(async (message) => {
       if (message?.action === "getLiveTranscript") {
         return { ok: true, live: liveTranscript };

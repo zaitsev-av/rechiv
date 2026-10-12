@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveTranscriptResult, SummaryResult, TranscriptResult } from "../src/shared/types";
+import { chromeMock } from "./setup";
 
 const editorMock = vi.hoisted(() => ({
   markdown: "",
@@ -114,7 +115,7 @@ async function loadTranscriptModule(
     writable: true,
     configurable: true,
   });
-  vi.mocked(chrome.storage.local.get).mockImplementation(async (key) => {
+  chromeMock.storage.local.get.mockImplementation(async (key) => {
     if (key === "config") return { config: { sttServiceUrl: "http://localhost:9876" } };
     if (key === "sessionTitles") return {};
     return {};

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { chromeMock } from "./setup";
 
 // DomParser ходит в DOM страницы созвона — подменяем целиком.
 const domParser = {
@@ -28,7 +29,7 @@ async function runInjector(host: string) {
   // Только host: при чужом origin postMessage отвергнет сообщение.
   vi.stubGlobal("location", { ...window.location, host });
   vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ ok: true } as never);
-  vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+  chromeMock.storage.local.get.mockResolvedValue({});
   await import("../src/content/injector");
   await new Promise((r) => setTimeout(r, 0));
 

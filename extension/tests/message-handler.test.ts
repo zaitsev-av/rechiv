@@ -1,24 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mockResponse, mockTab } from "./mocks";
+import { chromeMock } from "./setup";
 
 describe("service worker message handler", () => {
-  let messageHandler: (
-    msg: Record<string, unknown>,
-    sender: chrome.runtime.MessageSender,
-    sendResponse: (resp: unknown) => void,
-  ) => boolean;
+  let messageHandler: Parameters<typeof chrome.runtime.onMessage.addListener>[0];
 
   beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
 
-    vi.mocked(chrome.storage.local.get).mockImplementation(async (key) => {
+    chromeMock.storage.local.get.mockImplementation(async (key) => {
       if (key === "config") return { config: { sttServiceUrl: "http://localhost:9876" } };
       return {};
     });
 
-    globalThis.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockImplementation(async (url, opts) => {
       if (typeof url === "string" && url.includes("/health")) {
-        return { ok: true, json: () => Promise.resolve({ status: "ok" }) };
+        return mockResponse({ status: "ok" });
       }
       if (
         typeof url === "string" &&
@@ -26,50 +24,43 @@ describe("service worker message handler", () => {
         opts?.method === "POST" &&
         url.includes("/chunks")
       ) {
-        return { ok: true, json: () => Promise.resolve({ status: "ok", chunkIndex: 0 }) };
+        return mockResponse({ status: "ok", chunkIndex: 0 });
       }
       if (typeof url === "string" && url.includes("/live")) {
-        return {
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              sessionId: "test-123",
-              status: "recording",
-              isFinal: false,
-              processedChunks: 1,
-              totalChunks: 1,
-              duration: "00:00:42",
-              participants: [],
-              segments: [{ speakerId: "local", speaker: "Анна", text: "Проверка" }],
-            }),
-        };
+        return mockResponse({
+          sessionId: "test-123",
+          status: "recording",
+          isFinal: false,
+          processedChunks: 1,
+          totalChunks: 1,
+          duration: "00:00:42",
+          participants: [],
+          segments: [{ speakerId: "local", speaker: "Анна", text: "Проверка" }],
+        });
       }
       if (typeof url === "string" && url.includes("/finish")) {
-        return { ok: true, json: () => Promise.resolve({ status: "processing" }) };
+        return mockResponse({ status: "processing" });
       }
       if (typeof url === "string" && url.includes("/sessions") && opts?.method === "POST") {
-        return {
-          ok: true,
-          json: () => Promise.resolve({ sessionId: "test-123", status: "recording" }),
-        };
+        return mockResponse({ sessionId: "test-123", status: "recording" });
       }
-      return { ok: true, json: () => Promise.resolve({}) };
+      return mockResponse({});
     });
 
-    const listenerCapture = vi.fn();
+    const listenerCapture = vi.fn<typeof chrome.runtime.onMessage.addListener>();
     vi.mocked(chrome.runtime.onMessage).addListener = listenerCapture;
 
-    (chrome.tabs as any).update = vi.fn().mockResolvedValue({});
+    chromeMock.tabs.update.mockResolvedValue(mockTab());
 
     await import("../src/background/service-worker");
     await new Promise((r) => setTimeout(r, 50));
 
-    messageHandler = listenerCapture.mock.calls[0]?.[0];
+    messageHandler = listenerCapture.mock.calls[0][0];
   });
 
-  function sendMessage(msg: Record<string, unknown>): Promise<Record<string, unknown>> {
+  function sendMessage(msg: Record<string, unknown>): Promise<unknown> {
     return new Promise((resolve) => {
-      messageHandler(msg, { tab: { id: 1 } } as chrome.runtime.MessageSender, resolve);
+      messageHandler(msg, { tab: mockTab({ id: 1 }) }, resolve);
     });
   }
 
@@ -88,9 +79,9 @@ describe("service worker message handler", () => {
   });
 
   it("startRecording creates session and returns ok", async () => {
-    vi.mocked(chrome.tabs.query).mockResolvedValue([
-      { id: 1, url: "https://stream.wb.ru/room/1" },
-    ] as chrome.tabs.Tab[]);
+    chromeMock.tabs.query.mockResolvedValue([
+      mockTab({ id: 1, url: "https://stream.wb.ru/room/1" }),
+    ]);
     const resp = await sendMessage({
       action: "startRecording",
       callUrl: "https://stream.wb.ru/room/1",
@@ -100,9 +91,9 @@ describe("service worker message handler", () => {
   });
 
   it("stopRecording returns ok", async () => {
-    vi.mocked(chrome.tabs.query).mockResolvedValue([
-      { id: 1, url: "https://stream.wb.ru/room/1" },
-    ] as chrome.tabs.Tab[]);
+    chromeMock.tabs.query.mockResolvedValue([
+      mockTab({ id: 1, url: "https://stream.wb.ru/room/1" }),
+    ]);
     await sendMessage({ action: "startRecording", callUrl: "https://stream.wb.ru/room/1" });
     const resp = await sendMessage({ action: "stopRecording" });
     expect(resp).toEqual({ ok: true, sessionId: "test-123" });
@@ -121,9 +112,9 @@ describe("service worker message handler", () => {
   });
 
   it("shows the live transcript as an overlay inside the call tab", async () => {
-    vi.mocked(chrome.tabs.query).mockResolvedValue([
-      { id: 17, url: "https://stream.wb.ru/room/1" },
-    ] as chrome.tabs.Tab[]);
+    chromeMock.tabs.query.mockResolvedValue([
+      mockTab({ id: 17, url: "https://stream.wb.ru/room/1" }),
+    ]);
 
     const resp = await sendMessage({
       action: "showLiveTranscript",
@@ -139,7 +130,7 @@ describe("service worker message handler", () => {
   });
 
   it("reports an error when the call tab cannot be found for the live overlay", async () => {
-    vi.mocked(chrome.tabs.query).mockResolvedValue([]);
+    chromeMock.tabs.query.mockResolvedValue([]);
 
     const resp = await sendMessage({
       action: "showLiveTranscript",

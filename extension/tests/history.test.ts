@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo } from "../src/shared/types";
+import { chromeMock } from "./setup";
 
 const mockSessions: SessionInfo[] = [
   {
@@ -27,7 +28,7 @@ const mockSessions: SessionInfo[] = [
 
 async function loadHistoryModule(sessions: SessionInfo[] = mockSessions) {
   document.body.innerHTML = '<div id="sessions"></div><button id="btn-top"></button>';
-  vi.mocked(chrome.storage.local.get).mockImplementation(async (key) => {
+  chromeMock.storage.local.get.mockImplementation(async (key) => {
     if (key === "config") return { config: { sttServiceUrl: "http://localhost:9876" } };
     if (key === "sessionTitles") return {};
     return {};
@@ -66,7 +67,7 @@ describe("history page (module integration)", () => {
 
   it("shows error message safely when API unavailable", async () => {
     document.body.innerHTML = '<div id="sessions"></div><button id="btn-top"></button>';
-    vi.mocked(chrome.storage.local.get).mockImplementation(async (key) => {
+    chromeMock.storage.local.get.mockImplementation(async (key) => {
       if (key === "config") return { config: { sttServiceUrl: "http://localhost:9876" } };
       return {};
     });

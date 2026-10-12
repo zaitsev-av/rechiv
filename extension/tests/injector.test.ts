@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RecordingStorage } from "../src/shared/storage";
 import { retry } from "../src/shared/utils";
+import { chromeMock } from "./setup";
 
 describe("injector chunk upload behavior", () => {
   let storage: RecordingStorage;
@@ -54,7 +55,7 @@ describe("injector chunk upload behavior", () => {
   });
 
   it("chunk buffer persists to chrome.storage", async () => {
-    vi.mocked(chrome.storage.local.get).mockResolvedValue({ chunkBuffer: [] });
+    chromeMock.storage.local.get.mockResolvedValue({ chunkBuffer: [] });
     await storage.addToChunkBuffer({
       sessionId: "session-1",
       speakerId: "sp1",
