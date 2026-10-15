@@ -14,6 +14,7 @@ let currentSessionId: string | null = null;
 let currentUploadToken: string | null = null;
 let domPollInterval: ReturnType<typeof setInterval> | null = null;
 const knownStreams = new Set<string>();
+
 // Надёжные привязки адаптера имеют приоритет над догадками DOM.
 const adapterMappedStreams = new Set<string>();
 const identifiedNames = new Map<string, string>();
@@ -22,7 +23,7 @@ let captureStopAcknowledged = false;
 
 const PREFIX = "[Rechiv:injector]";
 
-const mixedAudioPlatform = capabilitiesForHost(location.host).audio === "mixed";
+const remoteStreamIsPerson = capabilitiesForHost(location.host).audio === "per-participant";
 
 async function init() {
   const config = await getConfig();
@@ -40,7 +41,10 @@ function handleInterceptorMessage(event: MessageEvent) {
 
   switch (msg.type) {
     case "RECHIV_WEBRTC_DETECTED":
-      chrome.runtime.sendMessage({ action: "webrtcDetected", url: location.href });
+      chrome.runtime.sendMessage({
+        action: "webrtcDetected",
+        url: location.href,
+      });
       break;
 
     case "RECHIV_TRACK_ADDED":
@@ -53,7 +57,10 @@ function handleInterceptorMessage(event: MessageEvent) {
       break;
 
     case "RECHIV_TRACK_ENDED":
-      chrome.runtime.sendMessage({ action: "trackEnded", streamId: msg.streamId });
+      chrome.runtime.sendMessage({
+        action: "trackEnded",
+        streamId: msg.streamId,
+      });
       break;
 
     case "RECHIV_CONNECTION_STATE":
@@ -74,8 +81,7 @@ function handleInterceptorMessage(event: MessageEvent) {
     case "RECHIV_CAPTURE_STOPPED":
       pendingVadTimeline = msg.vadTimeline;
       captureStopAcknowledged = true;
-      // Сразу, не дожидаясь хвоста чанков: вкладку могут закрыть раньше.
-      // Повтор в doFinishSession безвреден — сервер перезаписывает файл.
+
       if (msg.vadTimeline && currentSessionId) sendVadTimeline(currentSessionId, msg.vadTimeline);
       break;
   }
@@ -129,7 +135,12 @@ async function handleChunk(
     console.log(PREFIX, "chunk uploaded OK");
   } catch (err) {
     console.error(PREFIX, "Upload failed after retries, buffering:", err);
-    await storage.addToChunkBuffer({ sessionId, speakerId, timestamp, data: base64Data });
+    await storage.addToChunkBuffer({
+      sessionId,
+      speakerId,
+      timestamp,
+      data: base64Data,
+    });
   } finally {
     pendingUploads--;
     checkAllUploaded();
@@ -167,6 +178,7 @@ function handleServiceWorkerMessage(
   sendResponse: (resp: { ok: boolean }) => void,
 ) {
   console.log(PREFIX, "received from SW:", msg);
+
   switch (msg.action) {
     case "startCapture":
       startCapture(msg.sessionId, msg.uploadToken);
@@ -185,17 +197,20 @@ function handleServiceWorkerMessage(
       sendResponse({ ok: true });
       break;
   }
+
   return true;
 }
 
 async function startCapture(sessionId: string, uploadToken?: string) {
   console.log(PREFIX, "startCapture", sessionId);
+
   currentSessionId = sessionId;
   currentUploadToken = uploadToken ?? null;
   pendingVadTimeline = undefined;
   captureStopAcknowledged = false;
   adapterMappedStreams.clear();
   identifiedNames.clear();
+
   const config = await getConfig();
   window.postMessage(
     {
@@ -206,11 +221,12 @@ async function startCapture(sessionId: string, uploadToken?: string) {
     },
     location.origin,
   );
+
   domPollInterval = setInterval(() => pollDomForNames(sessionId), 5000);
+
   flushChunkBuffer(sessionId);
 }
 
-/** Не финализирует сессию. */
 function flushCapture() {
   console.log(PREFIX, "flushCapture, sessionId:", currentSessionId);
   window.postMessage({ type: "RECHIV_STOP_CAPTURE" }, location.origin);
@@ -306,10 +322,10 @@ function sendSpeakerName(sessionId: string, speakerId: string, name: string) {
 function pollDomForNames(sessionId: string) {
   let unmappedStreams = [...knownStreams].filter((id) => !adapterMappedStreams.has(id));
 
-  // Удалённый поток здесь — микс комнаты, любое имя на нём ложно.
-  if (mixedAudioPlatform) {
+  if (!remoteStreamIsPerson) {
     unmappedStreams = unmappedStreams.filter((id) => id === "local");
   }
+
   if (unmappedStreams.length === 0) return;
 
   const matchedStreams = new Set<string>();

@@ -8,6 +8,7 @@
 const PREFIX = "[Rechiv:diag]";
 const CONSOLE_PAYLOAD = 300;
 const RTP_SAMPLE_MS = 100;
+const STATS_EVERY_SAMPLES = 10;
 const MAX_RECORDS = 500_000;
 /**
  * Сервер игнорирует просьбу об отдельных аудиослотах (замер 03.08), поэтому 0.
@@ -35,6 +36,7 @@ const records: Record_[] = [];
 const startedAt = Date.now();
 let overflowed = false;
 let sampler: ReturnType<typeof setInterval> | null = null;
+let samplesTaken = 0;
 const connections = new Set<RTCPeerConnection>();
 
 /** Монотонное время: системные часы могут прыгнуть посреди созвона. */
@@ -85,20 +87,28 @@ export function watchDataChannels(pc: RTCPeerConnection): void {
   });
 }
 
-export function watchDataChannel(channel: RTCDataChannel): void {
-  if (!DIAGNOSTICS_ENABLED || typeof channel?.addEventListener !== "function") return;
+const watchedChannels = new WeakSet<RTCDataChannel>();
 
+function watchDataChannel(channel: RTCDataChannel): void {
+  if (watchedChannels.has(channel) || typeof channel?.addEventListener !== "function") return;
+  watchedChannels.add(channel);
   console.log(PREFIX, "watching datachannel", channel.label);
   channel.addEventListener("message", (event) => {
     logPayload("dc", channel.label, "in", event.data);
   });
+}
 
-  // Исходящие тоже: клиент сам подписывается на слоты.
-  const originalSend = channel.send.bind(channel);
-  channel.send = (data: string | Blob | ArrayBuffer | ArrayBufferView) => {
-    logPayload("dc", channel.label, "out", data);
-    return originalSend(data as string);
-  };
+export function watchCreatedDataChannels(): void {
+  const proto = globalThis.RTCDataChannel?.prototype;
+  if (!DIAGNOSTICS_ENABLED || !proto) return;
+
+  const originalSend = proto.send;
+
+  proto.send = function (this: RTCDataChannel, ...args: unknown[]) {
+    watchDataChannel(this);
+    logPayload("dc", this.label, "out", args[0]);
+    return Reflect.apply(originalSend, this, args);
+  } as RTCDataChannel["send"];
 }
 
 /** SSRC/CSRC по аудиоприёмникам: сигналинг не говорит, кто звучит в слоте. */
@@ -114,8 +124,54 @@ export function watchPeerConnection(pc: RTCPeerConnection): void {
   sampler ??= setInterval(sampleRtpSources, RTP_SAMPLE_MS);
 }
 
+const lastSenders = new WeakMap<RTCPeerConnection, string>();
+
+function sampleSenders(pc: RTCPeerConnection): void {
+  let senders: RTCRtpSender[];
+  try {
+    senders = pc.getSenders();
+  } catch {
+    return;
+  }
+
+  const state = senders
+    .filter((sender) => sender.track?.kind !== "video")
+    .map((sender) => ({
+      trackId: sender.track?.id ?? null,
+      enabled: sender.track?.enabled ?? null,
+      muted: sender.track?.muted ?? null,
+      readyState: sender.track?.readyState ?? null,
+    }));
+
+  const key = JSON.stringify(state);
+  if (lastSenders.get(pc) === key) return;
+  lastSenders.set(pc, key);
+  record("senders", { senders: state });
+}
+
+export function logGetUserMedia(
+  constraints: MediaStreamConstraints | undefined,
+  stream: MediaStream,
+): void {
+  if (!DIAGNOSTICS_ENABLED) return;
+  const tracks = stream.getAudioTracks().map((track) => ({
+    trackId: track.id,
+    label: track.label,
+    settings: track.getSettings?.() ?? null,
+  }));
+  console.log(PREFIX, "getUserMedia", constraints, tracks);
+  record("gum", { constraints: JSON.parse(JSON.stringify(constraints ?? null)), tracks });
+  for (const track of stream.getAudioTracks()) {
+    for (const kind of ["mute", "unmute", "ended"] as const) {
+      track.addEventListener(kind, () => record("gumTrack", { state: kind, trackId: track.id }));
+    }
+  }
+}
+
 function sampleRtpSources(): void {
+  const withStats = ++samplesTaken % STATS_EVERY_SAMPLES === 0;
   for (const pc of connections) {
+    sampleSenders(pc);
     let receivers: RTCRtpReceiver[];
     try {
       receivers = pc.getReceivers();
@@ -125,6 +181,7 @@ function sampleRtpSources(): void {
     for (const receiver of receivers) {
       if (receiver.track?.kind !== "audio") continue;
       const mid = midOf(pc, receiver);
+      if (withStats) void recordReceiverStats(receiver, mid);
 
       const sync = safeSources(() => receiver.getSynchronizationSources?.() ?? []);
       const contributing = safeSources(() => receiver.getContributingSources?.() ?? []);
@@ -140,6 +197,81 @@ function sampleRtpSources(): void {
       });
     }
   }
+}
+
+/** Растут ли декодированные сэмплы: без них дорожка тихая, а источников нет. */
+async function recordReceiverStats(receiver: RTCRtpReceiver, mid: string | null): Promise<void> {
+  try {
+    const report = await receiver.getStats();
+    for (const stat of report.values()) {
+      if (stat.type !== "inbound-rtp") continue;
+      record("rxStats", {
+        mid,
+        transform: (receiver as { transform?: object | null }).transform?.constructor.name ?? null,
+        trackMuted: receiver.track.muted,
+        packetsReceived: stat.packetsReceived,
+        totalSamplesReceived: stat.totalSamplesReceived,
+        concealedSamples: stat.concealedSamples,
+        audioLevel: stat.audioLevel,
+        jitterBufferEmittedCount: stat.jitterBufferEmittedCount,
+        playoutId: stat.playoutId,
+      });
+    }
+  } catch {
+    // Статистика приёмника доступна не везде.
+  }
+}
+
+/** Свой аудиоконвейер страницы: декодер и воспроизведение мимо WebRTC-дорожек. */
+export function watchAudioPipeline(): void {
+  if (!DIAGNOSTICS_ENABLED) return;
+
+  watchConstructor("RTCRtpScriptTransform", (args) => ({ options: plain(args[1]) }));
+  watchConstructor("AudioDecoder");
+  watchConstructor("AudioContext", (args) => ({ options: plain(args[0]) }));
+  watchConstructor("MediaStreamTrackGenerator", (args) => ({ options: plain(args[0]) }));
+
+  const worklet = globalThis.AudioWorklet?.prototype;
+  const originalAddModule = worklet?.addModule;
+  if (worklet && typeof originalAddModule === "function") {
+    worklet.addModule = function (this: AudioWorklet, url: string | URL, options?: WorkletOptions) {
+      record("audioWorklet", { url: String(url).slice(0, 200) });
+      return originalAddModule.call(this, url, options);
+    };
+  }
+}
+
+function watchConstructor(
+  name: string,
+  describe: (args: unknown[]) => Record<string, unknown> = () => ({}),
+): void {
+  const scope = globalThis as unknown as Record<string, unknown>;
+  const original = scope[name];
+  if (typeof original !== "function") return;
+
+  scope[name] = new Proxy(original, {
+    construct(target, args, newTarget) {
+      record("ctor", { name, ...describe(args) });
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
+}
+
+function plain(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value ?? null));
+  } catch {
+    return String(value);
+  }
+}
+
+/** Звук фрагмента целиком: по дампу можно проверить, что ушло в распознавание. */
+export function recordChunkAudio(speakerId: string, timestamp: number, base64: string): void {
+  if (DIAGNOSTICS_ENABLED) record("chunkAudio", { speakerId, timestamp, data: base64 });
+}
+
+export function recordLevel(speakerId: string, level: number | null, threshold: number): void {
+  if (DIAGNOSTICS_ENABLED) record("level", { speakerId, level, threshold });
 }
 
 function safeSources<T>(read: () => T[]): T[] {
@@ -188,6 +320,55 @@ export function watchWebSockets(): void {
 
   globalThis.WebSocket = DiagnosticWebSocket;
   announce();
+}
+
+/** Meet ходит в сигналинг через gRPC-web поверх fetch/XHR, а не WebSocket. */
+export function watchRpc(): void {
+  if (!DIAGNOSTICS_ENABLED) return;
+
+  const isRpc = (url: string) => url.includes("$rpc") || url.includes("/rpc/");
+
+  const originalFetch = globalThis.fetch;
+  if (typeof originalFetch === "function") {
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (isRpc(url) && init?.body) logPayload("rpc", socketLabel(url), "out", init.body);
+      const response = await originalFetch(input, init);
+      if (isRpc(url)) {
+        void response
+          .clone()
+          .arrayBuffer()
+          .then((body) => logPayload("rpc", socketLabel(url), "in", body))
+          .catch(() => undefined);
+      }
+      return response;
+    };
+  }
+
+  const xhr = globalThis.XMLHttpRequest?.prototype;
+  if (!xhr) return;
+  const originalOpen = xhr.open;
+  const originalSend = xhr.send;
+  const urls = new WeakMap<XMLHttpRequest, string>();
+  xhr.open = function (this: XMLHttpRequest, ...args: Parameters<XMLHttpRequest["open"]>) {
+    urls.set(this, String(args[1]));
+    return originalOpen.apply(this, args);
+  } as XMLHttpRequest["open"];
+  xhr.send = function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
+    const url = urls.get(this) ?? "";
+    if (isRpc(url)) {
+      if (body) logPayload("rpc", socketLabel(url), "out", body);
+      this.addEventListener("load", () => {
+        const data =
+          this.responseType === "" || this.responseType === "text"
+            ? this.responseText
+            : this.response;
+        logPayload("rpc", socketLabel(url), "in", data);
+      });
+    }
+
+    return originalSend.call(this, body);
+  };
 }
 
 /** Подменяет audioSlotsCount и число слотов в исходящем setSlots. */
@@ -248,22 +429,26 @@ function socketLabel(url: string | URL): string {
 function logPayload(channel: string, label: string, dir: "in" | "out", data: unknown): void {
   if (data instanceof Blob) {
     void data
-      .text()
-      .then((text) => emit(channel, label, dir, printable(text), data.size))
+      .arrayBuffer()
+      .then((buffer) => logPayload(channel, label, dir, buffer))
       .catch(() => undefined);
     return;
   }
+
   const bytes =
     data instanceof ArrayBuffer
       ? new Uint8Array(data)
       : ArrayBuffer.isView(data)
         ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
         : null;
+
   if (bytes) {
     const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    emit(channel, label, dir, printable(decoded), bytes.byteLength);
+    // Текстовая версия теряет байты протобуфа и сжатых сообщений: для разбора нужен оригинал.
+    emit(channel, label, dir, printable(decoded), bytes.byteLength, toBase64(bytes));
     return;
   }
+
   if (typeof data === "string") {
     emit(channel, label, dir, data, data.length);
     return;
@@ -271,8 +456,15 @@ function logPayload(channel: string, label: string, dir: "in" | "out", data: unk
   emit(channel, label, dir, `<${typeof data}>`, 0);
 }
 
-function emit(channel: string, label: string, dir: "in" | "out", text: string, size: number): void {
-  record(channel, { label, dir, size, payload: text });
+function emit(
+  channel: string,
+  label: string,
+  dir: "in" | "out",
+  text: string,
+  size: number,
+  raw?: string,
+): void {
+  record(channel, { label, dir, size, payload: text, ...(raw ? { raw } : {}) });
   console.log(PREFIX, channel, dir, label, truncateForConsole(text));
 }
 
@@ -284,6 +476,14 @@ export function logRemoteSdp(sdp: string | undefined): void {
     .filter((line) => line.startsWith("m=") || /^a=(mid|msid|ssrc|extmap):/.test(line));
   console.log(PREFIX, `remote sdp\n${lines.join("\n")}`);
   record("sdp", { sdp });
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
 }
 
 function printable(value: string): string {
@@ -351,6 +551,14 @@ function announce(): void {
         );
       }
       return desiredSlotCount;
+    },
+
+    tiles(): Record<string, string> {
+      const result: Record<string, string> = {};
+      for (const entry of records) {
+        if (entry.type === "tile") result[String(entry.id)] = String(entry.text);
+      }
+      return result;
     },
 
     vad(): { at: number; active: string[] }[] {

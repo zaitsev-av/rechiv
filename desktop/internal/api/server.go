@@ -34,6 +34,7 @@ const (
 var allowedPageOrigins = []string{
 	"https://stream.wb.ru",
 	"https://telemost.yandex.ru",
+	"https://meet.google.com",
 }
 
 type Server struct {

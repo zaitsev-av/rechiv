@@ -5,7 +5,7 @@ import numpy as np
 
 _WINDOW_SEC = 0.03
 _NOISE_FACTOR = 3.0
-_ABSOLUTE_FLOOR = 0.004
+_ABSOLUTE_FLOOR = 0.01
 # Страховка от фрагмента из сплошной речи без пауз.
 _PEAK_CEILING = 0.35
 _SILENCE_HOLD_SEC = 0.35

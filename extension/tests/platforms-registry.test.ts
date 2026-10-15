@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { GenericDomAdapter } from "../src/content/platforms/generic/dom";
 import { GenericPageAdapter } from "../src/content/platforms/generic/page";
+import { GoogleMeetDomAdapter } from "../src/content/platforms/google-meet/dom";
+import { GoogleMeetPageAdapter } from "../src/content/platforms/google-meet/page";
 import {
   capabilitiesForHost,
   pickDomAdapter,
@@ -18,12 +20,17 @@ describe("platform capabilities", () => {
     ["stream.wb.ru", "per-participant"],
     ["unknown.example", "per-participant"],
   ])("selects audio behavior for %s", (host, audio) => {
-    expect(capabilitiesForHost(host)).toEqual({ audio });
+    expect(capabilitiesForHost(host)).toMatchObject({ audio });
+  });
+
+  it("records the local voice from the sender on Google Meet", () => {
+    expect(capabilitiesForHost("meet.google.com").localAudio).toBe("sender");
+    expect(capabilitiesForHost("stream.wb.ru").localAudio).toBeUndefined();
   });
 
   it("has capabilities and both adapters for every registered host", () => {
     for (const platform of PLATFORMS) {
-      expect(["mixed", "per-participant"]).toContain(platform.capabilities.audio);
+      expect(["mixed", "per-participant", "slots"]).toContain(platform.capabilities.audio);
       expect(platform.hosts.length).toBeGreaterThan(0);
       for (const host of platform.hosts) {
         expect(capabilitiesForHost(host)).toEqual(platform.capabilities);
@@ -38,6 +45,7 @@ describe("adapter selection", () => {
   it.each([
     ["telemost.yandex.ru", TelemostPageAdapter, TelemostDomAdapter],
     ["stream.wb.ru", LiveKitPageAdapter, WbStreamDomAdapter],
+    ["meet.google.com", GoogleMeetPageAdapter, GoogleMeetDomAdapter],
     ["unknown.example", GenericPageAdapter, GenericDomAdapter],
     ["stream.wb.ru.evil.example", GenericPageAdapter, GenericDomAdapter],
   ])("selects page and DOM adapters for %s", (host, page, dom) => {

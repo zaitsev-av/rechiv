@@ -25,8 +25,10 @@ Go application.
 
 ## Adding a platform
 
-- Add `id`, `name`, `hosts`, optional `callPath` and `capabilities.audio`
-  (`mixed` or `per-participant`) to `extension/src/platforms.json`. Both extension
+- Add `id`, `name`, `hosts`, optional `callPath` or `callPathPattern` (regular expression)
+  and `capabilities.audio` (`mixed`, `per-participant` or `slots`) to `extension/src/platforms.json`.
+  Set `capabilities.localAudio` to `sender` when the platform processes the microphone itself:
+  the local track is then recorded from the outgoing sender. Both extension
   builds generate manifest permissions and matches from this registry.
 - Create `content/platforms/<id>/page.ts` and `dom.ts` and register their factories
   in `content/platforms/registry.ts`. Generic DOM guesses can be inherited.
@@ -70,8 +72,10 @@ CI (`.github/workflows/ci.yml`) запускает линтер, тесты и �
 
 ## Как добавить площадку
 
-- Добавьте `id`, `name`, `hosts`, необязательный `callPath` и `capabilities.audio`
-  (`mixed` или `per-participant`) в `extension/src/platforms.json`. Обе сборки
+- Добавьте `id`, `name`, `hosts`, необязательный `callPath` или `callPathPattern` (регулярное
+  выражение) и `capabilities.audio` (`mixed`, `per-participant` или `slots`) в `extension/src/platforms.json`.
+  Укажите `capabilities.localAudio: sender`, если площадка сама обрабатывает микрофон: тогда свой
+  голос пишется с отправляемого трека. Обе сборки
   расширения генерируют разрешения и matches манифеста из этого реестра.
 - Создайте `content/platforms/<id>/page.ts` и `dom.ts`, зарегистрируйте их фабрики
   в `content/platforms/registry.ts`. Общие DOM-догадки можно унаследовать.

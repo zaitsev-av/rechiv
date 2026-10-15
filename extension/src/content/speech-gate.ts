@@ -1,4 +1,4 @@
-export const SPEECH_LEVEL = 0.01;
+export const SPEECH_LEVEL = 0.02;
 /** Ровный сигнал без перепадов — шум, а не тихая речь: судим по громкости. */
 export const STATIONARY_SPEECH_LEVEL = 0.03;
 export const NOISE_FACTOR = 3;

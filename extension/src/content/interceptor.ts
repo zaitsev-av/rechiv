@@ -1,12 +1,17 @@
 import {
+  logGetUserMedia,
   logRemoteSdp,
   logRemoteTrack,
-  watchDataChannel,
+  recordChunkAudio,
+  recordLevel,
+  watchAudioPipeline,
+  watchCreatedDataChannels,
   watchDataChannels,
   watchPeerConnection,
+  watchRpc,
   watchWebSockets,
 } from "./platforms/diagnostics";
-import { pickPageAdapter } from "./platforms/registry";
+import { capabilitiesForHost, pickPageAdapter } from "./platforms/registry";
 import { rootMeanSquare, SPEECH_LEVEL, SpeechGate } from "./speech-gate";
 
 const MIME_TYPE = "audio/webm;codecs=opus";
@@ -46,11 +51,16 @@ const CHUNK_TIMESLICE = 1_000;
 const beaconFlushed = new WeakSet<MediaRecorder>();
 let speakerMapInterval: ReturnType<typeof setInterval> | null = null;
 const pageAdapter = pickPageAdapter(location.host);
+const localFromSender = capabilitiesForHost(location.host).localAudio === "sender";
+const peerConnections = new Set<RTCPeerConnection>();
 
 export function installInterceptor(): void {
   watchWebSockets();
+  watchRpc();
+  watchCreatedDataChannels();
+  watchAudioPipeline();
   // До interceptRTC: сигналинг площадки поднимается раньше, чем медиа.
-  pageAdapter.install?.();
+  pageAdapter.install?.({ addRemoteStream });
   interceptRTC();
   interceptGetUserMedia();
 
@@ -100,78 +110,106 @@ function interceptRTC(): void {
   const OriginalRTC = (globalThis as any).RTCPeerConnection;
   if (!OriginalRTC) return;
 
-  // biome-ignore lint/suspicious/noExplicitAny: globalThis не типизирован, args untyped
-  // biome-ignore lint/complexity/useArrowFunction: function нужна для поддержки вызова через new
-  (globalThis as any).RTCPeerConnection = function (...args: any[]) {
-    const pc = new OriginalRTC(...args);
-    notify({ type: "RECHIV_WEBRTC_DETECTED" });
-    watchDataChannels(pc);
-    watchPeerConnection(pc);
-
-    if (typeof pc.createDataChannel === "function") {
-      const origCreateDataChannel = pc.createDataChannel.bind(pc);
-      pc.createDataChannel = (label: string, init?: RTCDataChannelInit) => {
-        const channel = origCreateDataChannel(label, init);
-        watchDataChannel(channel);
-        return channel;
-      };
-    }
-
-    if (typeof pc.setRemoteDescription === "function") {
-      const origSetRemoteDescription = pc.setRemoteDescription.bind(pc);
-      pc.setRemoteDescription = (description: RTCSessionDescriptionInit) => {
-        logRemoteSdp(description?.sdp);
-        return origSetRemoteDescription(description);
-      };
-    }
-
-    pc.addEventListener("track", (event: RTCTrackEvent) => {
-      logRemoteTrack(event);
-      const stream = event.streams?.[0];
-      if (stream && event.track?.kind === "audio") {
-        const id = `remote-${stream.id}`;
-        console.log(PREFIX, "remote track detected, stream:", stream.id);
-        pageAdapter.noteRemoteTrack?.(stream.id, event.transceiver?.mid ?? null);
-        streams.set(id, { stream, kind: "remote" });
-        notify({ type: "RECHIV_TRACK_ADDED", streamId: id, kind: "remote" });
-        if (isCapturing) startRecordingStream(id, stream);
-      }
-    });
-
-    const origAddTrack = pc.addTrack.bind(pc);
-    pc.addTrack = (track: MediaStreamTrack, stream: MediaStream, ...rest: MediaStream[]) => {
-      if (track?.kind === "audio" && stream) {
-        console.log(PREFIX, "addTrack local audio, stream:", stream.id);
-        if (!streams.has("local")) {
-          streams.set("local", { stream, kind: "local" });
-          notify({ type: "RECHIV_TRACK_ADDED", streamId: "local", kind: "local" });
-          if (isCapturing) startRecordingStream("local", stream);
-        }
-      }
-      return origAddTrack(track, stream, ...rest);
-    };
-
-    const origAddTransceiver = pc.addTransceiver.bind(pc);
-    pc.addTransceiver = (trackOrKind: MediaStreamTrack | string, init?: RTCRtpTransceiverInit) => {
-      const result = origAddTransceiver(trackOrKind, init);
-      if (
-        (typeof trackOrKind !== "string" && trackOrKind?.kind === "audio") ||
-        trackOrKind === "audio"
-      ) {
-        console.log(PREFIX, "addTransceiver audio detected");
-      }
-      return result;
-    };
-
-    pc.addEventListener("connectionstatechange", () => {
-      notify({ type: "RECHIV_CONNECTION_STATE", state: pc.connectionState });
-    });
-
-    return pc;
-  };
-
+  // Proxy, а не функция-обёртка: сохраняет статические методы (generateCertificate) и instanceof.
   // biome-ignore lint/suspicious/noExplicitAny: globalThis не типизирован для RTCPeerConnection
-  (globalThis as any).RTCPeerConnection.prototype = OriginalRTC.prototype;
+  (globalThis as any).RTCPeerConnection = new Proxy(OriginalRTC, {
+    construct(target, args, newTarget) {
+      const pc = Reflect.construct(target, args, newTarget);
+      instrumentPeerConnection(pc);
+      return pc;
+    },
+  });
+}
+
+function instrumentPeerConnection(pc: RTCPeerConnection): void {
+  notify({ type: "RECHIV_WEBRTC_DETECTED" });
+  peerConnections.add(pc);
+  pageAdapter.notePeerConnection?.(pc);
+  watchDataChannels(pc);
+  watchPeerConnection(pc);
+
+  pc.addEventListener("track", (event: RTCTrackEvent) => {
+    logRemoteTrack(event);
+    const stream = event.streams?.[0];
+    if (stream && event.track?.kind === "audio") {
+      console.log(PREFIX, "remote track detected, stream:", stream.id);
+      pageAdapter.noteRemoteTrack?.(stream.id, event.transceiver?.mid ?? null);
+      if (pageAdapter.ownsRemoteTrack?.(event.track.id)) return;
+      addRemoteStream(`remote-${stream.id}`, stream);
+    }
+  });
+
+  // Добавление трека вызывает negotiationneeded: так находим микрофон, если getUserMedia прошёл мимо.
+  pc.addEventListener("negotiationneeded", () => noteLocalSenders(pc));
+
+  let lastRemoteSdp: string | undefined;
+  pc.addEventListener("signalingstatechange", () => {
+    const sdp = pc.remoteDescription?.sdp;
+    if (sdp && sdp !== lastRemoteSdp) {
+      lastRemoteSdp = sdp;
+      logRemoteSdp(sdp);
+    }
+  });
+
+  pc.addEventListener("connectionstatechange", () => {
+    if (pc.connectionState === "closed") peerConnections.delete(pc);
+    notify({ type: "RECHIV_CONNECTION_STATE", state: pc.connectionState });
+  });
+}
+
+function addRemoteStream(id: string, stream: MediaStream): void {
+  streams.set(id, { stream, kind: "remote" });
+  notify({ type: "RECHIV_TRACK_ADDED", streamId: id, kind: "remote" });
+  if (isCapturing) startRecordingStream(id, stream);
+}
+
+function noteLocalSenders(pc: RTCPeerConnection): void {
+  if (typeof MediaStream !== "function") return;
+  const current = streams.get("local");
+  if (current && !localFromSender) return;
+  const track = pc.getSenders?.().find((sender) => sender.track?.kind === "audio")?.track;
+  if (!track || current?.stream.getAudioTracks()[0] === track) return;
+  // В режиме sender без клона: клон не наследует enabled, а мьют на Meet — это enabled = false.
+  // Иначе клон: при остановке записи трек останавливаем, а исходный принадлежит странице.
+  const stream = new MediaStream([localFromSender ? track : track.clone()]);
+  console.log(PREFIX, "local audio sender, stream:", stream.id);
+  setLocalStream(stream);
+}
+
+function refreshLocalSenders(): void {
+  if (!localFromSender) return;
+  for (const pc of peerConnections) noteLocalSenders(pc);
+}
+
+/** Повторный захват заменяет локальный поток: старый рекордер больше не нужен. */
+function setLocalStream(stream: MediaStream): void {
+  const id = "local";
+  const prevRec = recorders.get(id);
+  if (prevRec && prevRec.state !== "inactive") {
+    console.log(PREFIX, "stopping previous local recorder");
+    const prevTimer = chunkTimers.get(id);
+    if (prevTimer) {
+      clearInterval(prevTimer);
+      chunkTimers.delete(id);
+    }
+    prevRec.stop();
+    recorders.delete(id);
+  }
+
+  const prevEntry = streams.get(id);
+  if (prevEntry && !localFromSender) {
+    for (const t of prevEntry.stream.getAudioTracks()) t.stop();
+  }
+
+  detachLevelMeter(id);
+  streams.set(id, { stream, kind: "local" });
+  if (!knownSpeakers.has(id)) {
+    knownSpeakers.add(id);
+    notify({ type: "RECHIV_TRACK_ADDED", streamId: id, kind: "local" });
+  }
+
+  // Мьют проверяет recordChunk.
+  if (isCapturing) startRecordingStream(id, stream);
 }
 
 function interceptGetUserMedia(): void {
@@ -179,11 +217,12 @@ function interceptGetUserMedia(): void {
 
   navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
     const stream = await origGetUserMedia(constraints);
+    logGetUserMedia(constraints, stream);
 
-    if (constraints?.audio) {
+    // В режиме sender сырой микрофон не пишем: в нём эхо собеседников и речь при мьюте.
+    if (constraints?.audio && !localFromSender) {
       const audioTracks = stream.getAudioTracks();
       if (audioTracks.length > 0) {
-        const id = "local";
         console.log(
           PREFIX,
           "getUserMedia captured audio, stream:",
@@ -192,38 +231,7 @@ function interceptGetUserMedia(): void {
           audioTracks.length,
         );
 
-        // Повторный getUserMedia заменяет локальный поток: старый рекордер больше не нужен.
-        const prevRec = recorders.get(id);
-        if (prevRec && prevRec.state !== "inactive") {
-          console.log(PREFIX, "stopping previous local recorder");
-          const prevTimer = chunkTimers.get(id);
-          if (prevTimer) {
-            clearInterval(prevTimer);
-            chunkTimers.delete(id);
-          }
-          prevRec.stop();
-          recorders.delete(id);
-        }
-
-        const prevEntry = streams.get(id);
-        if (prevEntry) {
-          for (const t of prevEntry.stream.getAudioTracks()) t.stop();
-        }
-
-        detachLevelMeter(id);
-
-        // Клон переживает остановку исходного трека страницей; мьют отслеживает адаптер.
-        const recordingStream = new MediaStream(audioTracks.map((t) => t.clone()));
-        streams.set(id, { stream: recordingStream, kind: "local" });
-        if (!knownSpeakers.has(id)) {
-          knownSpeakers.add(id);
-          notify({ type: "RECHIV_TRACK_ADDED", streamId: id, kind: "local" });
-        }
-
-        // Мьют проверяет recordChunk.
-        if (isCapturing) {
-          startRecordingStream(id, recordingStream);
-        }
+        setLocalStream(new MediaStream(audioTracks.map((t) => t.clone())));
       }
     }
 
@@ -237,6 +245,7 @@ function startCapture(): void {
   captureStartPerf = performance.now();
   pageAdapter.startVadCapture?.(captureStartPerf);
   localMuted = pageAdapter.isLocalMuted();
+  refreshLocalSenders();
   console.log(
     PREFIX,
     "startCapture, known streams:",
@@ -245,9 +254,11 @@ function startCapture(): void {
     "localMuted:",
     localMuted,
   );
+
   for (const [streamId, { stream }] of streams) {
     if (!recorders.has(streamId)) startRecordingStream(streamId, stream);
   }
+
   pageAdapter.syncMuteSubscription(handleMuteChange);
   startSpeakerMapping();
 }
@@ -260,6 +271,7 @@ function stopCapture(): void {
     type: "RECHIV_CAPTURE_STOPPED",
     ...(vadTimeline ? { vadTimeline } : {}),
   });
+
   pageAdapter.teardown();
   stopSpeakerMapping();
 
@@ -274,7 +286,8 @@ function stopCapture(): void {
   }
 
   const localEntry = streams.get("local");
-  if (localEntry) {
+  // Отправляемый трек принадлежит странице: остановка оборвала бы звонок.
+  if (localEntry && !localFromSender) {
     for (const t of localEntry.stream.getAudioTracks()) t.stop();
   }
 
@@ -309,6 +322,7 @@ function sendChunk(
   const reader = new FileReader();
   reader.onload = () => {
     const base64 = (reader.result as string).split(",")[1];
+    recordChunkAudio(speakerId, timestamp, base64);
     notify({
       type: "RECHIV_CHUNK",
       speakerId,
@@ -326,9 +340,12 @@ function attributeChunk(
   endedAt: number,
 ): { participantId: string; name: string } | null {
   if (speakerId === "local") return null;
-  // Часы записи монотонные, а границы фрагмента приходят из Date.now().
+
   const toCaptureClock = (value: number) => captureStartPerf + (value - captureStartTime);
-  return pageAdapter.attributeChunk?.(toCaptureClock(startedAt), toCaptureClock(endedAt)) ?? null;
+  return (
+    pageAdapter.attributeChunk?.(toCaptureClock(startedAt), toCaptureClock(endedAt), speakerId) ??
+    null
+  );
 }
 
 function attachLevelMeter(speakerId: string, stream: MediaStream): void {
@@ -368,6 +385,7 @@ function logLevel(speakerId: string, level: number | null, gate: SpeechGate): vo
   const now = Date.now();
   if ((levelLoggedAt.get(speakerId) ?? 0) + LEVEL_LOG_MS > now) return;
   levelLoggedAt.set(speakerId, now);
+  recordLevel(speakerId, level, gate.threshold());
   console.log(
     PREFIX,
     "level",
@@ -509,6 +527,8 @@ function extractAndSendSpeakerMap(): void {
 
   // Комната могла пересоздаться вместе с подпиской на мьют.
   if (isCapturing) pageAdapter.syncMuteSubscription(handleMuteChange);
+  // replaceTrack при смене микрофона не вызывает negotiationneeded.
+  if (isCapturing) refreshLocalSenders();
 }
 
 function handleMuteChange(muted: boolean): void {

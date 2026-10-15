@@ -26,7 +26,7 @@ describe("pickPageAdapter", () => {
   });
 
   it("falls back to the generic adapter on an unknown host", () => {
-    expect(pickPageAdapter("meet.google.com")).toBeInstanceOf(GenericPageAdapter);
+    expect(pickPageAdapter("zoom.us")).toBeInstanceOf(GenericPageAdapter);
   });
 });
 

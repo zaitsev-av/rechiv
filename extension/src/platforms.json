@@ -16,5 +16,15 @@
     "capabilities": {
       "audio": "mixed"
     }
+  },
+  {
+    "id": "google-meet",
+    "name": "Google Meet",
+    "hosts": ["meet.google.com"],
+    "callPathPattern": "^/[a-z]{3}-[a-z]{4}-[a-z]{3}/?$",
+    "capabilities": {
+      "audio": "slots",
+      "localAudio": "sender"
+    }
   }
 ]

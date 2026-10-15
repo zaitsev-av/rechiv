@@ -1,7 +1,10 @@
 import descriptors from "../platforms.json";
 
 export interface PlatformCapabilities {
-  audio: "mixed" | "per-participant";
+  /** slots — дорожки по числу громких говорящих, автора называет площадка (Meet). */
+  audio: "mixed" | "per-participant" | "slots";
+  /** sender — писать свой голос с отправляемого трека: площадка сама убирает эхо и мьютит его. */
+  localAudio?: "microphone" | "sender";
 }
 
 export interface PlatformDescriptor {
@@ -11,6 +14,8 @@ export interface PlatformDescriptor {
   capabilities: PlatformCapabilities;
   /** Без неё звонком считается любая страница хоста. */
   callPath?: string;
+  /** Регулярное выражение для пути, когда у звонка нет общего префикса. */
+  callPathPattern?: string;
 }
 
 export const PLATFORMS: PlatformDescriptor[] = descriptors as PlatformDescriptor[];
@@ -34,9 +39,11 @@ export const platformForHost = (host: string): PlatformDescriptor | null => {
 export const isCallPage = (url: string): boolean => {
   const platform = platformForUrl(url);
   if (!platform) return false;
-  if (!platform.callPath) return true;
+  if (!platform.callPath && !platform.callPathPattern) return true;
   try {
-    return new URL(url).pathname.includes(platform.callPath);
+    const { pathname } = new URL(url);
+    if (platform.callPathPattern) return new RegExp(platform.callPathPattern).test(pathname);
+    return pathname.includes(platform.callPath ?? "");
   } catch {
     return false;
   }

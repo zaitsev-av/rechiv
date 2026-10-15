@@ -29,9 +29,21 @@ describe("WebRTC Interceptor", () => {
         this._listeners[event].push(fn);
       }
 
-      addTrack(_track: any, _stream: any) {}
+      senders: { track: { kind: string } }[] = [];
+      static generateCertificate() {
+        return "certificate";
+      }
 
-      addTransceiver(_trackOrKind: any, _init?: any) {
+      addTrack(track: { kind: string }) {
+        this.senders.push({ track });
+        this._emit("negotiationneeded");
+      }
+
+      getSenders() {
+        return this.senders;
+      }
+
+      addTransceiver(..._args: unknown[]) {
         return { sender: {}, receiver: {}, direction: "sendrecv" };
       }
 
@@ -50,7 +62,9 @@ describe("WebRTC Interceptor", () => {
       constructor(
         public stream: any,
         public options: any,
-      ) {}
+      ) {
+        (globalThis as any).lastRecorderStream = stream;
+      }
       start(_timeslice?: number) {
         this.state = "recording";
       }
@@ -96,17 +110,105 @@ describe("WebRTC Interceptor", () => {
     );
   });
 
-  it("notifies on local track via addTrack", async () => {
+  it("finds local audio among senders after negotiationneeded", async () => {
+    (globalThis as any).MediaStream ??= class {
+      id = "local-sender-stream";
+      constructor(public tracks: unknown[]) {}
+    };
     await import("../src/content/interceptor");
     const pc = new (globalThis as any).RTCPeerConnection();
 
-    const track = { kind: "audio" };
+    const track = { kind: "audio", clone: () => ({ kind: "audio", stop: vi.fn() }) };
     const stream = { id: "local-stream-1", getAudioTracks: () => [{ kind: "audio" }] };
     pc.addTrack(track, stream);
 
     expect(messages).toContainEqual(
       expect.objectContaining({ type: "RECHIV_TRACK_ADDED", kind: "local" }),
     );
+  });
+
+  describe("local audio from sender", () => {
+    const useSenderPlatform = () =>
+      vi.doMock("../src/content/platforms/registry", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../src/content/platforms/registry")>()),
+        capabilitiesForHost: () => ({ audio: "per-participant", localAudio: "sender" }),
+      }));
+
+    beforeEach(() => {
+      (globalThis as any).MediaStream = class {
+        id = "local-sender-stream";
+        constructor(public tracks: unknown[]) {}
+        getAudioTracks() {
+          return this.tracks;
+        }
+      };
+    });
+
+    afterEach(() => {
+      vi.doUnmock("../src/content/platforms/registry");
+    });
+
+    it("ignores raw getUserMedia audio", async () => {
+      useSenderPlatform();
+      const raw = { kind: "audio", clone: vi.fn(), stop: vi.fn(), addEventListener: vi.fn() };
+      (navigator.mediaDevices.getUserMedia as any).mockResolvedValue({
+        id: "raw",
+        getAudioTracks: () => [raw],
+      });
+      await import("../src/content/interceptor");
+
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      expect(messages).not.toContainEqual(
+        expect.objectContaining({ type: "RECHIV_TRACK_ADDED", kind: "local" }),
+      );
+    });
+
+    it("records the sent track itself and switches on replaceTrack", async () => {
+      useSenderPlatform();
+      await import("../src/content/interceptor");
+      const pc = new (globalThis as any).RTCPeerConnection();
+      const sent = { kind: "audio", clone: vi.fn(), stop: vi.fn(), readyState: "live" };
+      pc.addTrack(sent);
+
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "RECHIV_START_CAPTURE" }, source: window }),
+      );
+      const recorded = () => (globalThis as any).lastRecorderStream?.getAudioTracks?.()[0] ?? null;
+      expect(recorded()).toBe(sent);
+      expect(sent.clone).not.toHaveBeenCalled();
+
+      const replaced = { kind: "audio", clone: vi.fn(), stop: vi.fn(), readyState: "live" };
+      pc.senders[0].track = replaced;
+      pc._emit("negotiationneeded");
+      expect(recorded()).toBe(replaced);
+
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "RECHIV_STOP_CAPTURE" }, source: window }),
+      );
+      expect(sent.stop).not.toHaveBeenCalled();
+      expect(replaced.stop).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not override peer connection methods", async () => {
+    await import("../src/content/interceptor");
+    const pc = new (globalThis as any).RTCPeerConnection();
+
+    for (const method of [
+      "addTrack",
+      "addTransceiver",
+      "createDataChannel",
+      "setRemoteDescription",
+    ]) {
+      expect(Object.hasOwn(pc, method)).toBe(false);
+    }
+  });
+
+  it("keeps RTCPeerConnection static methods", async () => {
+    await import("../src/content/interceptor");
+
+    expect((globalThis as any).RTCPeerConnection.generateCertificate()).toBe("certificate");
   });
 
   it("does not notify for non-audio tracks", async () => {
