@@ -1,6 +1,8 @@
 import { extensionVersionHeaders } from "./extension-version";
 import { clearCachedSttToken, ensureSttToken } from "./stt-token";
 import type {
+  Folder,
+  FolderSettings,
   LiveTranscriptResult,
   SessionInfo,
   SummaryResult,
@@ -78,6 +80,70 @@ export class SttApiClient {
 
   async listSessions(): Promise<SessionInfo[]> {
     return this._getCore("/sessions");
+  }
+
+  async listFolders(): Promise<Folder[]> {
+    return this._getCore("/folders");
+  }
+
+  async createFolder(name: string): Promise<Folder> {
+    return this._postCore("/folders", { name });
+  }
+
+  async renameFolder(id: string, name: string): Promise<Folder> {
+    return this._folderRequest(`/folders/${encodeURIComponent(id)}`, "PATCH", { name });
+  }
+
+  async setFolderSettings(id: string, settings: FolderSettings): Promise<Folder> {
+    return this._folderRequest(`/folders/${encodeURIComponent(id)}/settings`, "PUT", settings);
+  }
+
+  async previewFolderTitles(id: string): Promise<{ renamed: string[]; manual: string[] }> {
+    return this._getCore(`/folders/${encodeURIComponent(id)}/titles`);
+  }
+
+  async applyFolderTitles(id: string): Promise<{ renamed: number }> {
+    return this._postCore(`/folders/${encodeURIComponent(id)}/titles`, {});
+  }
+
+  async previewFolderRetention(id: string, days: number): Promise<{ sessions: string[] }> {
+    return this._getCore(`/folders/${encodeURIComponent(id)}/retention?days=${days}`);
+  }
+
+  async deleteFolder(id: string): Promise<void> {
+    await this._folderRequest(`/folders/${encodeURIComponent(id)}`, "DELETE");
+  }
+
+  async addFolderRule(id: string, url: string): Promise<{ folder: Folder; matching: string[] }> {
+    return this._postCore(`/folders/${encodeURIComponent(id)}/rules`, { url });
+  }
+
+  async deleteFolderRule(id: string, url: string): Promise<void> {
+    await this._folderRequest(
+      `/folders/${encodeURIComponent(id)}/rules?url=${encodeURIComponent(url)}`,
+      "DELETE",
+    );
+  }
+
+  async moveSession(id: string, folderId: string): Promise<SessionInfo> {
+    return this._folderRequest(`/sessions/${encodeURIComponent(id)}/folder`, "PUT", { folderId });
+  }
+
+  async moveFolderSessions(id: string, sessionIds: string[], byRule: boolean): Promise<void> {
+    await this._folderRequest(`/folders/${encodeURIComponent(id)}/sessions`, "POST", {
+      sessionIds,
+      byRule,
+    });
+  }
+
+  private async _folderRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
+    const response = await this._fetchCore(path, {
+      method,
+      headers: body === undefined ? {} : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`${method} ${path} failed: ${response.status}`);
+    return response.status === 204 ? (undefined as T) : response.json();
   }
 
   async uploadChunk(

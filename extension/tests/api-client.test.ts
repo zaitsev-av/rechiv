@@ -51,6 +51,35 @@ describe("SttApiClient", () => {
     expect(result.sessionId).toBe("abc123");
   });
 
+  it("calls folder settings, title and retention routes with encoded IDs", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response("{}", { status: 200 }));
+    await client.setFolderSettings("a/b", { titleTemplate: "{date}", retentionDays: 7 });
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "http://localhost:9876/folders/a%2Fb/settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ titleTemplate: "{date}", retentionDays: 7 }),
+      }),
+    );
+    await client.previewFolderTitles("a/b");
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "http://localhost:9876/folders/a%2Fb/titles",
+      expect.objectContaining({ method: "GET" }),
+    );
+    await client.applyFolderTitles("a/b");
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "http://localhost:9876/folders/a%2Fb/titles",
+      expect.objectContaining({ method: "POST" }),
+    );
+    await client.previewFolderRetention("a/b", 7);
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "http://localhost:9876/folders/a%2Fb/retention?days=7",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
   it("uploadChunk sends multipart form", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")

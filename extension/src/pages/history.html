@@ -28,36 +28,40 @@
         <span class="local-badge">Данные не покидают компьютер</span>
       </header>
 
-      <main>
-        <section class="hero">
-          <div>
-            <p class="eyebrow">Архив встреч</p>
-            <h1>Ваши созвоны</h1>
-            <p class="hero-copy">
-              Возвращайтесь к решениям, договорённостям и точным формулировкам.
-            </p>
-          </div>
-          <div class="hero-visual" aria-hidden="true">
-            <span class="visual-card visual-card-back"></span>
-            <span class="visual-card visual-card-front">
-              <i></i><i></i><i></i>
-            </span>
-          </div>
-        </section>
-
-        <section class="archive">
-          <div class="archive-heading">
-            <h2>Последние записи</h2>
-            <span id="session-count" class="count-badge">Загрузка…</span>
-          </div>
-          <div id="sessions" class="session-grid" aria-live="polite">
-            <div class="loading-state">
-              <span class="loading-spinner"></span>
-              Загружаю историю
+      <div class="history-layout">
+        <aside class="folder-sidebar">
+          <p class="eyebrow">Папки</p>
+          <nav id="folders" aria-label="Папки"></nav>
+          <button id="new-folder" class="new-folder" type="button">+ Новая папка</button>
+        </aside>
+        <main>
+          <section class="hero">
+            <div>
+              <p class="eyebrow" id="history-eyebrow">Архив встреч</p>
+              <h1 id="history-title">Все созвоны</h1>
+              <p class="hero-copy">
+                Возвращайтесь к решениям, договорённостям и точным формулировкам.
+              </p>
             </div>
-          </div>
-        </section>
-      </main>
+            <button id="folder-actions" class="folder-more" type="button" aria-label="Действия с папкой" aria-haspopup="menu" aria-expanded="false" hidden>⋯</button>
+          </section>
+
+          <div id="folder-banner"></div>
+          <p id="history-error" role="alert" hidden></p>
+          <section class="archive">
+            <div class="archive-heading">
+              <h2>Последние записи</h2>
+              <span id="session-count" class="count-badge">Загрузка…</span>
+            </div>
+            <div id="sessions" class="session-grid" aria-live="polite">
+              <div class="loading-state">
+                <span class="loading-spinner"></span>
+                Загружаю историю
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
 
       <button id="btn-top" class="scroll-top" type="button" title="Наверх" aria-label="Наверх">
         <span aria-hidden="true">↑</span>

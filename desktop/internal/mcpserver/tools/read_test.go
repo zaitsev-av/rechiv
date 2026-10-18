@@ -32,6 +32,7 @@ func TestReadTools(t *testing.T) {
 				"to":          "2026-09-24",
 				"query":       "груминг",
 				"participant": "Анна",
+				"folder":      "Дейли",
 			},
 			setupMocks: func(m mocksList) {
 				m.library.EXPECT().
@@ -40,10 +41,11 @@ func TestReadTools(t *testing.T) {
 						To:          "2026-09-24",
 						Query:       "груминг",
 						Participant: "Анна",
+						Folder:      "Дейли",
 					}).
-					Return(nil, nil)
+					Return([]library.Call{{ID: "call", Folder: "Дейли"}}, nil)
 			},
-			wantJSON: `{"calls":[]}`,
+			wantJSON: `{"calls":[{"id":"call","title":"","created_at":"","duration":"","participants":null,"status":"","has_summary":false,"folder":"Дейли"}]}`,
 		},
 		{
 			name: "ошибка списка",

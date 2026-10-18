@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo } from "../src/shared/types";
 import { chromeMock } from "./setup";
 
@@ -33,18 +33,134 @@ async function loadHistoryModule(sessions: SessionInfo[] = mockSessions) {
     if (key === "sessionTitles") return {};
     return {};
   });
-  globalThis.fetch = vi.fn().mockResolvedValue({
+  globalThis.fetch = vi.fn().mockImplementation(async (url: string) => ({
     ok: true,
-    json: () => Promise.resolve(sessions),
-  });
+    json: async () => (url.endsWith("/folders") ? [] : sessions),
+  }));
   vi.resetModules();
   await import("../src/pages/history");
-  await new Promise((r) => setTimeout(r, 50));
+  if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(50);
+  else await new Promise((r) => setTimeout(r, 50));
+}
+
+function dragCard(card: Element, type: string) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", {
+    value: { setData: vi.fn(), setDragImage: vi.fn(), effectAllowed: "uninitialized" },
+  });
+  card.dispatchEvent(event);
+  return event;
 }
 
 describe("history page (module integration)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.dispatchEvent(new Event("beforeunload"));
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("does not poll without recording or processing sessions", async () => {
+    vi.useFakeTimers();
+    await loadHistoryModule([{ ...mockSessions[0], status: "completed" }]);
+    const requests = vi.mocked(fetch).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    const card = document.querySelector<HTMLElement>(".session-card")!;
+    dragCard(card, "dragstart");
+    dragCard(card, "dragend");
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+  });
+
+  it("pauses polling during dragging and resumes after dragend", async () => {
+    vi.useFakeTimers();
+    await loadHistoryModule();
+    const card = document.querySelector<HTMLElement>(".session-card")!;
+    expect(card.draggable).toBe(true);
+    const requests = vi.mocked(fetch).mock.calls.length;
+    dragCard(card, "dragstart");
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    expect(document.querySelector(".session-card")).toBe(card);
+    dragCard(card, "dragend");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetch).toHaveBeenCalledTimes(requests + 2);
+    expect(document.querySelector(".session-card")).not.toBe(card);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("does not replace cards when an in-flight poll settles (error: %s)", async (fail) => {
+    vi.useFakeTimers();
+    await loadHistoryModule();
+    let finish!: (response: Response) => void;
+    let reject!: (reason: Error) => void;
+    vi.mocked(fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve, rejectRequest) => {
+          finish = resolve;
+          reject = rejectRequest;
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+    const card = document.querySelector(".session-card")!;
+    dragCard(card, "dragstart");
+    if (fail) reject(new Error("offline"));
+    else finish({ ok: true, json: async () => mockSessions } as Response);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.querySelector(".session-card")).toBe(card);
+    dragCard(card, "dragend");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(document.querySelector(".session-card")).not.toBe(card);
+  });
+
+  it("pauses polling with a menu open and closes it when dragging starts", async () => {
+    vi.useFakeTimers();
+    await loadHistoryModule();
+    const card = document.querySelector(".session-card")!;
+    card.querySelector<HTMLButtonElement>(".session-more")!.click();
+    const requests = vi.mocked(fetch).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    expect(document.querySelector(".folder-menu")).not.toBeNull();
+    dragCard(card, "dragstart");
+    expect(document.querySelector(".folder-menu")).toBeNull();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    dragCard(card, "dragend");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetch).toHaveBeenCalledTimes(requests + 2);
+  });
+
+  it.each(["Enter", "Escape"])("disables dragging during title editing until %s", async (key) => {
+    vi.useFakeTimers();
+    await loadHistoryModule();
+    const card = document.querySelector<HTMLElement>(".session-card")!;
+    const title = card.querySelector<HTMLElement>(".session-title")!;
+    title.click();
+    expect(card.draggable).toBe(false);
+    expect(title.contentEditable).toBe("true");
+    title.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(card.draggable).toBe(false);
+    expect(title.contentEditable).toBe("true");
+    expect(dragCard(title, "dragstart").defaultPrevented).toBe(true);
+    const requests = vi.mocked(fetch).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    expect(document.querySelector(".session-card")).toBe(card);
+    title.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(card.draggable).toBe(true);
+    expect(document.querySelector<HTMLElement>(".session-card")?.draggable).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetch).toHaveBeenCalledTimes(requests + 4);
   });
 
   it("renders sessions sorted newest first", async () => {
@@ -79,9 +195,9 @@ describe("history page (module integration)", () => {
     expect(document.getElementById("sessions")!.textContent).toContain("STT-сервис недоступен");
   });
 
-  it("each session card has a delete button", async () => {
+  it("each session card has an actions menu", async () => {
     await loadHistoryModule();
-    const deleteButtons = document.querySelectorAll(".btn-delete");
+    const deleteButtons = document.querySelectorAll(".session-more");
     expect(deleteButtons.length).toBe(2);
   });
 });

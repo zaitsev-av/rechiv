@@ -96,10 +96,14 @@ type updateSpeakerRequest struct {
 }
 
 type sessionResponse struct {
+	FolderID        string                  `json:"folderId"`
+	FolderByRule    bool                    `json:"folderByRule"`
+	CallKey         string                  `json:"callKey"`
 	SessionID       string                  `json:"sessionId"`
 	Status          domain.SessionStatus    `json:"status"`
 	CallURL         string                  `json:"callUrl"`
 	Title           string                  `json:"title,omitempty"`
+	TitleAuto       bool                    `json:"titleAuto,omitempty"`
 	CreatedAt       string                  `json:"createdAt"`
 	FinishedAt      *string                 `json:"finishedAt"`
 	Participants    map[string]*participant `json:"participants"`
@@ -147,6 +151,18 @@ func New(
 
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("PUT /folders/{id}/settings", server.setFolderSettings)
+	mux.HandleFunc("GET /folders/{id}/titles", server.previewFolderTitles)
+	mux.HandleFunc("POST /folders/{id}/titles", server.applyFolderTitles)
+	mux.HandleFunc("GET /folders/{id}/retention", server.previewFolderRetention)
+	mux.HandleFunc("GET /folders", server.listFolders)
+	mux.HandleFunc("POST /folders", server.createFolder)
+	mux.HandleFunc("PATCH /folders/{id}", server.renameFolder)
+	mux.HandleFunc("DELETE /folders/{id}", server.deleteFolder)
+	mux.HandleFunc("POST /folders/{id}/rules", server.addFolderRule)
+	mux.HandleFunc("DELETE /folders/{id}/rules", server.deleteFolderRule)
+	mux.HandleFunc("POST /folders/{id}/sessions", server.moveFolderSessions)
+	mux.HandleFunc("PUT /sessions/{id}/folder", server.moveSession)
 	mux.HandleFunc("GET /health", server.health)
 	mux.HandleFunc("GET /auth/token", server.bootstrapToken)
 	mux.HandleFunc("GET /onboarding/state", server.onboardingState)
@@ -182,6 +198,8 @@ func isWebUIPath(path string) bool {
 	case path == "/health", strings.HasPrefix(path, "/auth/"):
 		return false
 	case strings.HasPrefix(path, "/onboarding/"):
+		return false
+	case path == "/folders", strings.HasPrefix(path, "/folders/"):
 		return false
 	case path == "/sessions", strings.HasPrefix(path, "/sessions/"):
 		return false
@@ -617,10 +635,12 @@ func (s *Server) sessionView(session *domain.Session) sessionResponse {
 	}
 
 	response := sessionResponse{
+		FolderID: session.FolderID, FolderByRule: session.FolderByRule, CallKey: domain.NormalizeCallURL(session.CallURL),
 		SessionID:       session.SessionID,
 		Status:          session.Status,
 		CallURL:         session.CallURL,
 		Title:           session.Title,
+		TitleAuto:       session.TitleAuto,
 		CreatedAt:       session.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"),
 		FinishedAt:      finishedAt,
 		Participants:    participants,
@@ -660,7 +680,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+extensionVersionHeader)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		}
 
 		if r.Method == http.MethodOptions {

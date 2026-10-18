@@ -244,7 +244,11 @@ claude mcp add rechiv -- "/Applications/Rechiv.app/Contents/MacOS/rechiv" mcp
 For another location, pass the path to the binary. The recordings directory can be set
 with `mcp -data-dir /path/to/data`; by default the application's directory is used.
 
-- `rechiv_list_calls` — find a call by date, title or participant;
+Calls can be organized into virtual folders without moving files on disk. In a call’s ⋯ menu, move it to a folder and enable a rule for its call link. The rule applies to new calls; a dialog offers to move matching past calls. Deleting a folder returns its calls to Inbox. The MCP `folder` filter matches part of a folder name (case-insensitive, ё/е equivalent); `inbox` or `Входящие` selects calls without a folder. List results include the folder name as `folder`.
+
+Folder settings (⋯ in the folder header) offer a title template with `{date}`, `{time}` and `{weekday}` in the machine’s local time. It applies to new calls routed by a link rule and, after confirmation, to existing automatic titles; manual titles and manual moves are preserved. Optional retention deletes calls older than the selected number of days at startup, hourly and immediately after saving, excluding recording and processing calls.
+
+- `rechiv_list_calls` — find a call by date, title, participant or `folder`;
 - `rechiv_get_summary` — read the summary on its own;
 - `rechiv_get_transcript` — get a fragment by `HH:MM:SS` timestamps or
   `offset`/`limit` (up to 200 segments, continue with `next_offset`);

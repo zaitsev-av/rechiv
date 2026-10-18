@@ -6,9 +6,14 @@ import { applyAppearance, watchThemeChanges } from "@shared/theme";
 import type { SessionInfo } from "@shared/types";
 import { dropLegacyTitle, formatDateTime, getLegacyTitles, plural } from "@shared/utils";
 
+import { HistoryFolders } from "./history-folders";
+
 let api: SttApiClient;
+let folders: HistoryFolders;
+let loading = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let editingTitle = false;
+let pollNeeded = false;
 const REFRESH_INTERVAL_MS = 2000;
 
 const STATUS_MAP: Record<string, string> = {
@@ -37,23 +42,29 @@ async function init() {
   const config = await getConfig();
   applyAppearance(config);
   api = createPageSttApiClient(config.sttServiceUrl);
+  folders = new HistoryFolders(api, renderSessions, () => scheduleRefresh(pollNeeded));
   await renderSessions();
 }
 
 async function renderSessions() {
-  if (editingTitle) return;
+  if (editingTitle || folders.paused || loading) return;
+  loading = true;
   const container = document.getElementById("sessions")!;
   const countBadge = document.getElementById("session-count");
   try {
-    const sessions = await api.listSessions();
+    const [allSessions, folderList] = await Promise.all([api.listSessions(), api.listFolders()]);
+    pollNeeded = allSessions.some((s) => s.status === "recording" || s.status === "processing");
+    if (editingTitle || folders.paused) return;
+    folders.update(folderList, allSessions);
+    const sessions = folders.visible();
     const legacyTitles = await getLegacyTitles();
     await migrateLegacyTitles(sessions, legacyTitles);
+    if (editingTitle || folders.paused) return;
     container.innerHTML = "";
     if (countBadge) {
       countBadge.textContent = `${sessions.length} ${plural(sessions.length, "запись", "записи", "записей")}`;
     }
     if (sessions.length === 0) {
-      scheduleRefresh(false);
       const empty = document.createElement("div");
       empty.className = "empty-state";
       const visual = document.createElement("span");
@@ -67,6 +78,7 @@ async function renderSessions() {
       empty.appendChild(title);
       empty.appendChild(description);
       container.appendChild(empty);
+      folders.afterRender();
       return;
     }
     sessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -120,12 +132,6 @@ async function renderSessions() {
       textEl.appendChild(peopleEl);
       textEl.appendChild(durationEl);
 
-      const deleteBtn = document.createElement("button");
-      deleteBtn.className = "btn-delete";
-      deleteBtn.title = "Удалить запись";
-      deleteBtn.setAttribute("aria-label", "Удалить запись");
-      deleteBtn.textContent = "\u00d7";
-
       titleRow.appendChild(speakerEl);
       titleRow.appendChild(statusEl);
       bodyEl.appendChild(titleRow);
@@ -151,7 +157,7 @@ async function renderSessions() {
 
       div.appendChild(timeEl);
       div.appendChild(bodyEl);
-      div.appendChild(deleteBtn);
+      folders.decorate(s, textEl, div);
 
       div.addEventListener("click", () => {
         location.href = `transcript.html?sessionId=${s.sessionId}`;
@@ -159,8 +165,10 @@ async function renderSessions() {
 
       titleSpan.addEventListener("click", async (e) => {
         e.stopPropagation();
+        if (editingTitle) return;
         // Список обновляется по таймеру и снёс бы поле прямо во время правки.
         editingTitle = true;
+        div.draggable = false;
         scheduleRefresh(false);
         await startInlineEdit(
           titleSpan,
@@ -174,23 +182,17 @@ async function renderSessions() {
           },
         );
         editingTitle = false;
-        await renderSessions();
-      });
-
-      deleteBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        if (!confirm("Удалить эту запись?")) return;
-        await api.deleteSession(s.sessionId);
+        div.draggable = true;
         await renderSessions();
       });
 
       container.appendChild(div);
     }
-    scheduleRefresh(
-      sessions.some((session) => session.status === "recording" || session.status === "processing"),
-    );
+    folders.afterRender();
   } catch (err) {
+    if (editingTitle || folders.paused) return;
     console.error("[History] Failed to load sessions:", err);
+    pollNeeded = true;
     if (countBadge) countBadge.textContent = "Нет связи";
     container.innerHTML = "";
     const errorState = document.createElement("div");
@@ -206,7 +208,9 @@ async function renderSessions() {
     errorState.appendChild(title);
     errorState.appendChild(description);
     container.appendChild(errorState);
-    scheduleRefresh(true);
+  } finally {
+    loading = false;
+    scheduleRefresh(pollNeeded);
   }
 }
 
@@ -232,7 +236,7 @@ function scheduleRefresh(needed: boolean) {
     clearTimeout(refreshTimer);
     refreshTimer = null;
   }
-  if (!needed || editingTitle || document.visibilityState === "hidden") return;
+  if (!needed || editingTitle || folders?.paused || document.visibilityState === "hidden") return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
     void renderSessions();

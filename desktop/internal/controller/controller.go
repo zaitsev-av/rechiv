@@ -33,6 +33,9 @@ type Controller struct {
 	converter AudioConverter
 	logger    *log.Logger
 
+	now         func() time.Time
+	retentionMu sync.Mutex
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -80,6 +83,7 @@ func New(sessionStore *store.Store, inference engine.Engine, converter AudioConv
 
 	ctx, cancel := context.WithCancel(context.Background())
 	controller := &Controller{
+		now:    time.Now,
 		ctx:    ctx,
 		cancel: cancel,
 		logger: logger,
@@ -100,6 +104,12 @@ func New(sessionStore *store.Store, inference engine.Engine, converter AudioConv
 
 func (c *Controller) Start() error {
 	c.engineState = EngineStarting
+	c.RunRetention("")
+	c.wg.Go(func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		c.retentionLoop(ticker.C)
+	})
 
 	c.wg.Add(1)
 	go c.workerLoop()
@@ -159,6 +169,10 @@ func (c *Controller) Store() *store.Store {
 
 func (c *Controller) CreateSession(callURL string) (*domain.Session, error) {
 	session, err := c.store.Create(callURL)
+	if err != nil {
+		return nil, err
+	}
+	session, err = c.store.ApplyFolderRule(session.SessionID)
 	if err != nil {
 		return nil, err
 	}

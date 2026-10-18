@@ -21,6 +21,7 @@ type CallLibrary interface {
 
 func listCalls(ctx context.Context, client CallLibrary, in ListCallsInput) (*ListCallsOutput, error) {
 	calls, err := client.ListCalls(ctx, library.ListFilter{
+		Folder:      in.Folder,
 		From:        in.From,
 		To:          in.To,
 		Query:       in.Query,

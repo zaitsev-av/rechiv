@@ -1,8 +1,25 @@
+export interface FolderSettings {
+  titleTemplate?: string;
+  retentionDays?: number;
+}
+
+export interface Folder {
+  settings?: FolderSettings;
+  id: string;
+  name: string;
+  color: number;
+  rules: { url: string }[];
+}
+
 export interface SessionInfo {
+  folderId?: string;
+  folderByRule?: boolean;
+  callKey?: string;
   sessionId: string;
   status: "recording" | "suspended" | "processing" | "completed" | "error";
   callUrl: string;
   title?: string;
+  titleAuto?: boolean;
   createdAt: string;
   finishedAt: string | null;
   participants: Participant[];

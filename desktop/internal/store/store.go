@@ -19,9 +19,12 @@ import (
 var ErrNotFound = errors.New("session not found")
 
 type Store struct {
-	mu          sync.RWMutex
-	sessionsDir string
-	sessions    map[string]*domain.Session
+	mu            sync.RWMutex
+	foldersPath   string
+	folders       []domain.Folder
+	foldersBroken bool
+	sessionsDir   string
+	sessions      map[string]*domain.Session
 }
 
 func New(dataDir string) (*Store, error) {
@@ -30,7 +33,8 @@ func New(dataDir string) (*Store, error) {
 		return nil, err
 	}
 
-	s := &Store{sessionsDir: sessionsDir, sessions: make(map[string]*domain.Session)}
+	s := &Store{foldersPath: filepath.Join(dataDir, "folders.json"), sessionsDir: sessionsDir, sessions: make(map[string]*domain.Session)}
+	s.folders, s.foldersBroken = readFolders(s.foldersPath)
 	if err := s.load(); err != nil {
 		return nil, err
 	}
@@ -83,7 +87,7 @@ func (s *Store) Create(callURL string) (*domain.Session, error) {
 		return nil, err
 	}
 
-	return clone(session), nil
+	return s.sessionViewLocked(session), nil
 }
 
 func (s *Store) Get(id string) (*domain.Session, error) {
@@ -95,7 +99,7 @@ func (s *Store) Get(id string) (*domain.Session, error) {
 		return nil, ErrNotFound
 	}
 
-	return clone(session), nil
+	return s.sessionViewLocked(session), nil
 }
 
 func (s *Store) List() []*domain.Session {
@@ -104,7 +108,7 @@ func (s *Store) List() []*domain.Session {
 
 	items := make([]*domain.Session, 0, len(s.sessions))
 	for _, session := range s.sessions {
-		items = append(items, clone(session))
+		items = append(items, s.sessionViewLocked(session))
 	}
 
 	sort.Slice(items, func(i, j int) bool {
@@ -185,7 +189,7 @@ func (s *Store) UpdateSpeaker(id, speakerID, name string) (*domain.Session, erro
 		return nil, err
 	}
 
-	return clone(session), nil
+	return s.sessionViewLocked(session), nil
 }
 
 func (s *Store) SetTitle(id, title string) (*domain.Session, error) {
@@ -198,11 +202,12 @@ func (s *Store) SetTitle(id, title string) (*domain.Session, error) {
 	}
 
 	session.Title = title
+	session.TitleAuto = false
 	if err := s.saveLocked(session); err != nil {
 		return nil, err
 	}
 
-	return clone(session), nil
+	return s.sessionViewLocked(session), nil
 }
 
 func (s *Store) SetStatus(id string, status domain.SessionStatus, message string) error {

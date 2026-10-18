@@ -746,3 +746,26 @@ func TestDeleteSessionDropsCachedJobs(t *testing.T) {
 		t.Fatalf("jobs after delete = %d, want 0", len(jobs))
 	}
 }
+
+func TestCreateSessionFolderRule(t *testing.T) {
+	c, st := newTestController(t)
+	defer c.Close()
+	folder, err := st.CreateFolder("Дейли")
+	require.NoError(t, err)
+	_, _, err = st.AddFolderRule(folder.ID, "meet.google.com/room")
+	require.NoError(t, err)
+	session, err := c.CreateSession("https://www.MEET.google.com/room/?authuser=0")
+	require.NoError(t, err)
+	require.Equal(t, folder.ID, session.FolderID)
+	require.True(t, session.FolderByRule)
+	require.NoError(t, st.MoveSessions([]string{session.SessionID}, "", false))
+	_, _, err = st.AddFolderRule(folder.ID, "meet.google.com/room")
+	require.NoError(t, err)
+	saved, err := st.Get(session.SessionID)
+	require.NoError(t, err)
+	require.Empty(t, saved.FolderID)
+	require.False(t, saved.FolderByRule)
+	unmatched, err := c.CreateSession("https://meet.google.com/another")
+	require.NoError(t, err)
+	require.Empty(t, unmatched.FolderID)
+}

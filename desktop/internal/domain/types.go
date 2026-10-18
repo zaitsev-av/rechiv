@@ -17,10 +17,13 @@ type Participant struct {
 }
 
 type Session struct {
+	FolderID           string                  `json:"folderId,omitempty"`
+	FolderByRule       bool                    `json:"folderByRule,omitempty"`
 	SessionID          string                  `json:"sessionId"`
 	Status             SessionStatus           `json:"status"`
 	CallURL            string                  `json:"callUrl"`
 	Title              string                  `json:"title,omitempty"`
+	TitleAuto          bool                    `json:"titleAuto,omitempty"`
 	CreatedAt          time.Time               `json:"createdAt"`
 	FinishedAt         *time.Time              `json:"finishedAt,omitempty"`
 	Participants       map[string]*Participant `json:"participants"`

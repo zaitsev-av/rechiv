@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rechiv/desktop/internal/domain"
+	"rechiv/desktop/internal/store"
 )
 
 var ErrNotFound = errors.New("созвон не найден")
@@ -33,6 +34,11 @@ func (l *Library) ListCalls(ctx context.Context, filter ListFilter) ([]Call, err
 	if err != nil {
 		return nil, err
 	}
+	folders := store.ReadFolders(filepath.Join(filepath.Dir(l.sessionsDir), "folders.json"))
+	names := map[string]string{}
+	for _, f := range folders {
+		names[f.ID] = f.Name
+	}
 	calls := make([]Call, 0, len(sessions))
 	for _, session := range sessions {
 		if err := ctx.Err(); err != nil {
@@ -42,6 +48,11 @@ func (l *Library) ListCalls(ctx context.Context, filter ListFilter) ([]Call, err
 			continue
 		}
 		call := l.call(session)
+		call.Folder = names[session.FolderID]
+		inbox := strings.EqualFold(filter.Folder, "inbox") || strings.EqualFold(filter.Folder, "Входящие")
+		if inbox && call.Folder != "" || !inbox && !contains(call.Folder, filter.Folder) {
+			continue
+		}
 		if !contains(call.Title, filter.Query) || !hasParticipant(call, filter.Participant) {
 			continue
 		}

@@ -1,6 +1,7 @@
 package tools
 
 type ListCallsInput struct {
+	Folder      string `json:"folder,omitempty" jsonschema:"Подстрока имени папки без учёта регистра и ё/е; Входящие или inbox — без папки"`
 	From        string `json:"from,omitempty" jsonschema:"Дата/время начала включительно; формат в описании"`
 	To          string `json:"to,omitempty" jsonschema:"Дата включительно или дата-время исключительно"`
 	Query       string `json:"query,omitempty" jsonschema:"Подстрока названия без учёта регистра и ё/е"`

@@ -5,7 +5,7 @@ import "rechiv/desktop/internal/domain"
 const DefaultLimit = 200
 
 type ListFilter struct {
-	From, To, Query, Participant string
+	From, To, Query, Participant, Folder string
 }
 
 type TranscriptFilter struct {
@@ -19,6 +19,7 @@ type SearchFilter struct {
 }
 
 type Call struct {
+	Folder       string                `json:"folder,omitempty"`
 	ID           string                `json:"id"`
 	Title        string                `json:"title"`
 	CreatedAt    string                `json:"created_at"`
