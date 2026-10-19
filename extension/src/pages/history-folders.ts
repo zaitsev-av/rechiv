@@ -1,4 +1,5 @@
 import type { SttApiClient } from "@shared/api-client";
+import { getConfig, isLlmConfigured } from "@shared/config";
 import type { Folder, SessionInfo } from "@shared/types";
 import { formatDateTime, plural } from "@shared/utils";
 
@@ -548,7 +549,17 @@ export class HistoryFolders {
     input.spellcheck = false;
     input.value = folder.settings?.titleTemplate ?? "";
     label.htmlFor = input.id;
+    let llmConfigured = false;
     const chips = element("div", "folder-template-chips");
+    const llmHint = element(
+      "p",
+      "folder-hint folder-llm-hint",
+      "Тема созвона и автосаммари доступны после подключения LLM — ",
+    );
+    const settingsLink = element("a", "", "настройки Rechiv");
+    settingsLink.href = "settings.html";
+    llmHint.append(settingsLink);
+    const previewHint = element("p", "folder-hint");
     const preview = element("div", "folder-title-preview");
     const now = new Date();
     const date = now.toLocaleDateString("ru-RU");
@@ -629,10 +640,16 @@ export class HistoryFolders {
     );
     const syncTemplate = () => {
       for (const chip of chips.querySelectorAll<HTMLButtonElement>("button")) {
-        chip.disabled = input.value.includes(chip.dataset.token!);
-        chip.title = chip.disabled ? "Уже есть в шаблоне" : "";
+        const noLlm = chip.dataset.token === "{topic}" && !llmConfigured;
+        const used = input.value.includes(chip.dataset.token!);
+        chip.disabled = noLlm || used;
+        chip.title = noLlm
+          ? "Нужно подключить LLM в настройках Rechiv"
+          : used
+            ? "Уже есть в шаблоне"
+            : "";
       }
-      example.textContent =
+      const rendered =
         input.value
           .trim()
           .replaceAll("{date}", date)
@@ -642,6 +659,16 @@ export class HistoryFolders {
           )
           .replaceAll("{weekday}", now.toLocaleDateString("ru-RU", { weekday: "long" })) ||
         "— название не ставится —";
+      example.replaceChildren();
+      const parts = rendered.split("{topic}");
+      parts.forEach((part, index) => {
+        example.append(document.createTextNode(part));
+        if (index < parts.length - 1)
+          example.append(element("span", "folder-preview-topic", "релиз 3.2, блокер по API"));
+      });
+      previewHint.textContent = input.value.includes("{topic}")
+        ? "Тема появится после готовности транскрипта; до этого название без неё. Ручные названия не меняются."
+        : "Созвоны, переименованные вручную, шаблон не меняет. Пустой шаблон — название не ставится.";
       const unsaved = input.value.trim() !== (folder.settings?.titleTemplate ?? "");
       apply.disabled = unsaved || !input.value.trim();
       savedHint.textContent = unsaved
@@ -652,6 +679,7 @@ export class HistoryFolders {
       ["{date}", "+ дата"],
       ["{time}", "+ время"],
       ["{weekday}", "+ день недели"],
+      ["{topic}", "✦ тема созвона"],
     ]) {
       const chip = button(
         text,
@@ -660,7 +688,14 @@ export class HistoryFolders {
           const end = input.selectionEnd ?? start;
           const before = input.value.slice(0, start);
           const after = input.value.slice(end);
-          const inserted = `${before && !/\s$/.test(before) ? " " : ""}${token}${after && !/^\s/.test(after) ? " " : ""}`;
+          let inserted = `${before && !/\s$/.test(before) ? " " : ""}${token}${after && !/^\s/.test(after) ? " " : ""}`;
+          if (token === "{topic}") {
+            if (before.trim() && !/[—,:-]\s*$/.test(before)) {
+              inserted = `${/\s$/.test(before) ? "" : " "}— ${token}${after && !/^\s/.test(after) ? " " : ""}`;
+            } else if (!before.trim() && after.trim() && !/^\s*[—,:-]/.test(after)) {
+              inserted = `${token} —${/^\s/.test(after) ? "" : " "}`;
+            }
+          }
           input.value = before + inserted + after;
           input.focus();
           input.setSelectionRange(start + inserted.length, start + inserted.length);
@@ -685,15 +720,41 @@ export class HistoryFolders {
       label,
       input,
       chips,
+      llmHint,
       preview,
-      element(
-        "p",
-        "folder-hint",
-        "Созвоны, переименованные вручную, шаблон не меняет. Пустой шаблон — название не ставится.",
-      ),
+      previewHint,
       past,
       applyNotice,
     );
+
+    const summary = element("section", "folder-settings-section");
+    const summaryRow = element("div", "folder-settings-row");
+    const summaryCopy = element("span", "folder-field", "Делать саммари автоматически");
+    summaryCopy.append(element("small", "folder-hint", "После готовности транскрипта"));
+    let autoSummary = folder.settings?.autoSummary ?? false;
+    const summaryToggle = button(
+      "",
+      () => {
+        autoSummary = !autoSummary;
+        summaryToggle.setAttribute("aria-checked", String(autoSummary));
+      },
+      "folder-switch",
+    );
+    summaryToggle.setAttribute("role", "switch");
+    summaryToggle.setAttribute("aria-label", "Делать саммари автоматически");
+    summaryToggle.setAttribute("aria-checked", String(autoSummary));
+    summaryToggle.disabled = true;
+    summaryRow.append(summaryCopy, summaryToggle);
+    summary.append(element("h3", "", "Саммари"), summaryRow);
+    void getConfig()
+      .then((config) => {
+        if (!dialog.open) return;
+        llmConfigured = isLlmConfigured(config);
+        summaryToggle.disabled = !llmConfigured;
+        llmHint.hidden = llmConfigured;
+        syncTemplate();
+      })
+      .catch(() => undefined);
 
     const retention = element("section", "folder-settings-section");
     const row = element("div", "folder-settings-row");
@@ -769,6 +830,7 @@ export class HistoryFolders {
           await this.api.setFolderSettings(folder.id, {
             titleTemplate: input.value,
             retentionDays: enabled ? Number(days.value) : 0,
+            autoSummary,
           });
           dialog.close();
         },
@@ -777,7 +839,7 @@ export class HistoryFolders {
         },
       );
     });
-    form.append(titleSection, retention, actions);
+    form.append(titleSection, summary, retention, actions);
     dialog.append(form);
     syncTemplate();
     syncRetention();

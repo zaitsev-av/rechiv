@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HistoryFolders } from "../src/pages/history-folders";
 import { SttApiClient } from "../src/shared/api-client";
 import type { Folder, SessionInfo } from "../src/shared/types";
+import { chromeMock } from "./setup";
 
 const folders: Folder[] = [
   { id: "daily", name: "Дейли", color: 1, rules: [] },
@@ -81,6 +82,7 @@ function drag(
 
 beforeEach(() => {
   localStorage.clear();
+  chromeMock.storage.local.get.mockResolvedValue({});
   document.body.innerHTML =
     '<aside class="folder-sidebar"><nav id="folders"></nav><button id="new-folder">Новая папка</button></aside><h1 id="history-title"></h1><p id="history-eyebrow"></p><button id="folder-actions"></button><div id="folder-banner"></div><p id="history-error" hidden></p><div id="sessions"></div>';
   api = new SttApiClient("");
@@ -452,10 +454,13 @@ it("keeps a failed bulk move dialog open for retry", async () => {
 });
 
 describe("folder settings", () => {
-  function settings(template = "Дейли {date}", retentionDays = 0) {
+  function settings(template = "Дейли {date}", retentionDays = 0, autoSummary = false) {
     view.current = "daily";
     view.update(
-      [{ ...folders[0], settings: { titleTemplate: template, retentionDays } }, folders[1]],
+      [
+        { ...folders[0], settings: { titleTemplate: template, retentionDays, autoSummary } },
+        folders[1],
+      ],
       sessions,
     );
     document.getElementById("folder-actions")!.click();
@@ -472,6 +477,72 @@ describe("folder settings", () => {
       .querySelector("dialog form")!
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   }
+
+  it("disables LLM controls and preserves saved values without LLM", async () => {
+    const save = vi.spyOn(api, "setFolderSettings").mockResolvedValue(folders[0]);
+    const field = settings("Дейли — {topic}", 0, true);
+    await settle();
+    const chip = document.querySelector<HTMLButtonElement>('[data-token="{topic}"]')!;
+    const toggle = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Делать саммари автоматически"]',
+    )!;
+    expect(chip.disabled).toBe(true);
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector(".folder-llm-hint")?.textContent).toContain(
+      "Тема созвона и автосаммари доступны после подключения LLM",
+    );
+    expect(document.querySelector(".folder-llm-hint a")?.getAttribute("href")).toBe(
+      "settings.html",
+    );
+    expect(document.querySelector(".folder-preview-topic")?.textContent).toContain("релиз");
+    expect(document.querySelector("dialog")?.textContent).toContain(
+      "Тема появится после готовности транскрипта",
+    );
+    toggle.click();
+    submit();
+    await settle();
+    expect(save).toHaveBeenCalledWith("daily", {
+      titleTemplate: field.value,
+      retentionDays: 0,
+      autoSummary: true,
+    });
+  });
+
+  it("inserts topic with a separator, prevents duplicates and saves auto-summary", async () => {
+    chromeMock.storage.local.get.mockResolvedValue({
+      config: { llmUrl: "https://llm.test", llmModel: "model", llmApiKey: "key" },
+    });
+    const save = vi.spyOn(api, "setFolderSettings").mockResolvedValue(folders[0]);
+    const field = settings();
+    await settle();
+    const chip = document.querySelector<HTMLButtonElement>('[data-token="{topic}"]')!;
+    const toggle = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Делать саммари автоматически"]',
+    )!;
+    expect(chip.disabled).toBe(false);
+    expect(toggle.disabled).toBe(false);
+    expect(document.querySelector<HTMLElement>(".folder-llm-hint")?.hidden).toBe(true);
+    field.setSelectionRange(field.value.length, field.value.length);
+    chip.click();
+    expect(field.value).toBe("Дейли {date} — {topic}");
+    expect(chip.disabled).toBe(true);
+    expect(chip.title).toBe("Уже есть в шаблоне");
+    chip.click();
+    expect(field.value.match(/\{topic\}/g)).toHaveLength(1);
+    input(field, "Дейли: ");
+    field.setSelectionRange(field.value.length, field.value.length);
+    chip.click();
+    expect(field.value).toBe("Дейли: {topic}");
+    toggle.click();
+    submit();
+    await settle();
+    expect(save).toHaveBeenCalledWith("daily", {
+      titleTemplate: "Дейли: {topic}",
+      retentionDays: 0,
+      autoSummary: true,
+    });
+  });
 
   it("previews local date, time and weekday and disables duplicate chips on every edit", async () => {
     const field = settings();
@@ -570,7 +641,9 @@ describe("folder settings", () => {
         .mockResolvedValue({ sessions: ["s1", "s2"] });
       const save = vi.spyOn(api, "setFolderSettings").mockResolvedValue(folders[0]);
       settings();
-      const toggle = document.querySelector<HTMLButtonElement>('[role="switch"]')!;
+      const toggle = document.querySelector<HTMLButtonElement>(
+        '[role="switch"][aria-label="Удалять старые записи"]',
+      )!;
       const days = document.querySelector<HTMLInputElement>(".folder-retention-days input")!;
       expect(days.disabled).toBe(true);
       toggle.click();
@@ -597,6 +670,7 @@ describe("folder settings", () => {
       expect(save).toHaveBeenCalledExactlyOnceWith("daily", {
         titleTemplate: "Дейли {date}",
         retentionDays: 7,
+        autoSummary: false,
       });
       expect(document.querySelector("dialog")).toBeNull();
       expect(refresh).toHaveBeenCalled();
@@ -628,7 +702,9 @@ describe("folder settings", () => {
       .mockRejectedValueOnce(new Error("invalid template"))
       .mockResolvedValue(folders[0]);
     const field = settings("{date}", 30);
-    document.querySelector<HTMLButtonElement>('[role="switch"]')!.click();
+    document
+      .querySelector<HTMLButtonElement>('[role="switch"][aria-label="Удалять старые записи"]')!
+      .click();
     input(field, "Новый {time}");
     submit();
     await settle();
@@ -642,6 +718,7 @@ describe("folder settings", () => {
     expect(save).toHaveBeenLastCalledWith("daily", {
       titleTemplate: "Новый {time}",
       retentionDays: 0,
+      autoSummary: false,
     });
     expect(document.querySelector("dialog")).toBeNull();
   });

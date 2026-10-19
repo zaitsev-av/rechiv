@@ -23,8 +23,8 @@ func TestFolderSettingsRoutes(t *testing.T) {
 	require.NoError(t, err)
 	path := "/folders/" + folder.ID
 	var result domain.Folder
-	require.NoError(t, json.Unmarshal(call("PUT", path+"/settings", `{"titleTemplate":" Дейли {date} ","retentionDays":30}`, 200).Body.Bytes(), &result))
-	require.Equal(t, domain.FolderSettings{TitleTemplate: "Дейли {date}", RetentionDays: 30}, result.Settings)
+	require.NoError(t, json.Unmarshal(call("PUT", path+"/settings", `{"titleTemplate":" Дейли {date} ","retentionDays":30,"autoSummary":true}`, 200).Body.Bytes(), &result))
+	require.Equal(t, domain.FolderSettings{TitleTemplate: "Дейли {date}", RetentionDays: 30, AutoSummary: true}, result.Settings)
 	require.Contains(t, call("GET", "/folders", "", 200).Body.String(), `"settings"`)
 	session, err := c.Store().Create("")
 	require.NoError(t, err)

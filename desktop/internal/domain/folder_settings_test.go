@@ -18,7 +18,7 @@ func TestValidateTitleTemplate(t *testing.T) {
 		{strings.Repeat("я", 200), strings.Repeat("я", 200), false},
 		{strings.Repeat("я", 201), "", true}, {"{date} {date}", "", true},
 		{"{time}{time}", "", true}, {"{weekday}{weekday}", "", true},
-		{"{topic}", "", true}, {"{date", "", true}, {"date}", "", true},
+		{"{topic}", "{topic}", false}, {"{topic}{topic}", "", true}, {"{date", "", true}, {"date}", "", true},
 		{"{{date}}", "", true}, {"{}", "", true}, {"{DATE}", "", true},
 	} {
 		t.Run(tt.input, func(t *testing.T) {
@@ -50,7 +50,27 @@ func TestRenderTitleTemplate(t *testing.T) {
 		t.Run(tt.date+tt.template, func(t *testing.T) {
 			date, err := time.Parse(time.RFC3339, tt.date)
 			require.NoError(t, err)
-			require.Equal(t, tt.want, RenderTitleTemplate(tt.template, date))
+			require.Equal(t, tt.want, RenderTitleTemplate(tt.template, date, ""))
 		})
+	}
+}
+
+func TestRenderTopic(t *testing.T) {
+	date := time.Date(2026, 10, 15, 12, 0, 0, 0, time.Local)
+	for _, tt := range []struct{ template, topic, want string }{
+		{"Дейли {date} — {topic}", "", "Дейли 15.10.2026"},
+		{"Дейли {date} — {topic}", "План релиза", "Дейли 15.10.2026 — План релиза"},
+		{"Дейли - {topic}", "", "Дейли"}, {"Дейли: {topic}", "", "Дейли"},
+		{"Дейли, {topic}", "", "Дейли"}, {"{topic} — Дейли", "", "Дейли"},
+		{"{topic} - Дейли", "", "Дейли"}, {"{topic}: Дейли", "", "Дейли"},
+		{"{topic}, Дейли", "", "Дейли"}, {"{topic}", "", ""},
+		{"Дейли — {topic} — {date}", "", "Дейли 15.10.2026"},
+		{"  Дейли   {topic}  {date}  ", "", "Дейли 15.10.2026"},
+		{"Релиз: Дейли — {topic}", "", "Релиз: Дейли"},
+		{"{topic}", "Обсуждение {date}", "Обсуждение {date}"},
+		{"Раз{topic}бор", "", "Разбор"},
+		{"— {topic}", "", ""}, {"{topic} —", "", ""},
+	} {
+		t.Run(tt.template+tt.topic, func(t *testing.T) { require.Equal(t, tt.want, RenderTitleTemplate(tt.template, date, tt.topic)) })
 	}
 }

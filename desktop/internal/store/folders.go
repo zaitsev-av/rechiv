@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"rechiv/desktop/internal/domain"
 )
@@ -268,7 +269,7 @@ func (s *Store) ApplyFolderRule(id string) (*domain.Session, error) {
 				updated.FolderID = f.ID
 				updated.FolderByRule = true
 				if f.Settings.TitleTemplate != "" && (updated.Title == "" || updated.TitleAuto) {
-					updated.Title = domain.RenderTitleTemplate(f.Settings.TitleTemplate, updated.CreatedAt)
+					updated.Title = domain.RenderTitleTemplate(f.Settings.TitleTemplate, updated.CreatedAt, updated.Topic)
 					updated.TitleAuto = true
 				}
 				if err := s.saveLocked(updated); err != nil {
@@ -329,7 +330,7 @@ func (s *Store) folderTitlesLocked(id string) (FolderTitles, error) {
 		}
 		if session.Title != "" && !session.TitleAuto {
 			result.Manual = append(result.Manual, session.SessionID)
-		} else if template != "" && session.Title != domain.RenderTitleTemplate(template, session.CreatedAt) {
+		} else if template != "" && session.Title != domain.RenderTitleTemplate(template, session.CreatedAt, session.Topic) {
 			result.Renamed = append(result.Renamed, session.SessionID)
 		}
 	}
@@ -354,7 +355,7 @@ func (s *Store) ApplyFolderTitles(id string) (int, error) {
 	template := s.folders[folderIndex(s.folders, id)].Settings.TitleTemplate
 	for n, sessionID := range preview.Renamed {
 		updated := clone(s.sessions[sessionID])
-		updated.Title = domain.RenderTitleTemplate(template, updated.CreatedAt)
+		updated.Title = domain.RenderTitleTemplate(template, updated.CreatedAt, updated.Topic)
 		updated.TitleAuto = true
 		if err := s.saveLocked(updated); err != nil {
 			return n, err
@@ -381,4 +382,33 @@ func (s *Store) PreviewFolderRetention(id string, days int, now time.Time) ([]st
 	}
 	slices.Sort(result)
 	return result, nil
+}
+
+func (s *Store) SetTopic(id, topic string) (*domain.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[id]
+
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if strings.ContainsAny(topic, "\r\n\u0085\u2028\u2029") || utf8.RuneCountInString(strings.TrimSpace(topic)) > 120 {
+		return nil, fmt.Errorf("%w: тема должна быть одной строкой до 120 символов", ErrInvalid)
+	}
+
+	updated := clone(session)
+	updated.Topic = strings.TrimSpace(topic)
+	i := folderIndex(s.folders, updated.FolderID)
+	if updated.TitleAuto && i >= 0 && s.folders[i].Settings.TitleTemplate != "" {
+		updated.Title = domain.RenderTitleTemplate(s.folders[i].Settings.TitleTemplate, updated.CreatedAt, updated.Topic)
+	}
+
+	if err := s.saveLocked(updated); err != nil {
+		return nil, err
+	}
+
+	s.sessions[id] = updated
+
+	return s.sessionViewLocked(updated), nil
 }

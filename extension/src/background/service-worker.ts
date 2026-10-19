@@ -5,6 +5,11 @@ import { ALL_MATCHES, isCallPage } from "../shared/platform";
 import { RecordingStorage } from "../shared/storage";
 import type { RecordingState, SessionInfo, VadTimeline } from "../shared/types";
 import { getErrorMessage } from "../shared/utils";
+import {
+  type AutoProcessingResult,
+  autoProcessingKey,
+  processCompletedSession,
+} from "./auto-processing";
 
 const PREFIX = "[Rechiv:sw]";
 
@@ -268,8 +273,20 @@ export async function watchUntilReady(storage: RecordingStorage, sessionId: stri
   chrome.alarms.create(READY_ALARM, { periodInMinutes: 0.5 });
 }
 
+let pendingCheck: Promise<void> | undefined;
+
 /** Через alarm: service worker засыпает. */
 export async function checkPendingSessions(api: SttApiClient): Promise<void> {
+  if (pendingCheck) return pendingCheck;
+  pendingCheck = processPendingSessions(api);
+  try {
+    await pendingCheck;
+  } finally {
+    pendingCheck = undefined;
+  }
+}
+
+async function processPendingSessions(api: SttApiClient): Promise<void> {
   const storage = new RecordingStorage();
   const pending = await storage.getPendingSessions();
   if (pending.length === 0) {
@@ -282,7 +299,18 @@ export async function checkPendingSessions(api: SttApiClient): Promise<void> {
     try {
       const session = await api.getSession(sessionId);
       if (session.status === "completed" || session.status === "error") {
-        notifyTranscriptReady(session);
+        let result: AutoProcessingResult = {};
+        if (session.status === "completed") {
+          try {
+            result = await processCompletedSession(api, session);
+          } catch (error) {
+            console.error(PREFIX, "Автообработка не удалась:", error);
+            result.summaryFailed = true;
+          }
+        }
+        const current = await storage.getPendingSessions();
+        await storage.setPendingSessions(current.filter((id) => id !== sessionId));
+        notifyTranscriptReady(session, result);
       } else {
         stillWaiting.push(sessionId);
       }
@@ -291,19 +319,32 @@ export async function checkPendingSessions(api: SttApiClient): Promise<void> {
     }
   }
 
+  const added = (await storage.getPendingSessions()).filter((id) => !pending.includes(id));
+  stillWaiting.push(...added);
   await storage.setPendingSessions(stillWaiting);
+  for (const id of pending) {
+    if (!stillWaiting.includes(id)) await chrome.storage.local.remove(autoProcessingKey(id));
+  }
   if (stillWaiting.length === 0) await chrome.alarms.clear(READY_ALARM);
 }
 
-function notifyTranscriptReady(session: SessionInfo): void {
+function notifyTranscriptReady(session: SessionInfo, result: AutoProcessingResult = {}): void {
   const failed = session.status === "error";
   chrome.notifications.create(`transcript-ready-${session.sessionId}`, {
     type: "basic",
     iconUrl: chrome.runtime.getURL("icons/icon-default-128.png"),
-    title: failed ? "Транскрипт готов, но с ошибками" : "Транскрипт готов",
+    title: failed
+      ? "Транскрипт готов, но с ошибками"
+      : result.summaryReady
+        ? "Транскрипт и саммари готовы"
+        : "Транскрипт готов",
     message: failed
       ? (session.error ?? "Часть фрагментов не распозналась")
-      : "Нажмите, чтобы открыть",
+      : result.summaryFailed
+        ? "Саммари не получилось. Его можно сделать вручную на странице транскрипта."
+        : result.topicFailed
+          ? "Не удалось определить тему созвона. Нажмите, чтобы открыть."
+          : "Нажмите, чтобы открыть",
     requireInteraction: true,
   });
 }

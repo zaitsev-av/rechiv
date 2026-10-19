@@ -50,6 +50,7 @@ export async function fetchModelInfo(
   const fallback: ModelInfo = { contextWindow: FALLBACK_CONTEXT_WINDOW, modelId: llmModel };
   try {
     const resp = await fetch(`${llmUrl}/models`, {
+      signal: AbortSignal.timeout(10_000),
       headers: { Authorization: `Bearer ${llmApiKey}` },
     });
     if (!resp.ok) return fallback;

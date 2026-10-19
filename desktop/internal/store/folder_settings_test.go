@@ -17,15 +17,17 @@ func TestReadFolderSettings(t *testing.T) {
  {"id":"old","name":"Old"},
  {"id":"bad","name":"Bad","settings":{"titleTemplate":"{unknown}","retentionDays":-1}},
  {"id":"typed","name":"Typed","settings":{"retentionDays":"oops"}},
- {"id":"good","name":"Good","settings":{"titleTemplate":"  {date}  ","retentionDays":30}}
+ {"id":"good","name":"Good","settings":{"titleTemplate":"  {date}  ","retentionDays":30,"autoSummary":true}},
+ {"id":"stage1","name":"Stage 1","settings":{"titleTemplate":"{date}","retentionDays":14}}
  ]}`), 0600))
 	folders, broken := readFolders(path)
 	require.False(t, broken)
-	require.Len(t, folders, 4)
+	require.Len(t, folders, 5)
 	for _, f := range folders[:3] {
 		require.Equal(t, domain.FolderSettings{}, f.Settings)
 	}
-	require.Equal(t, domain.FolderSettings{TitleTemplate: "{date}", RetentionDays: 30}, folders[3].Settings)
+	require.Equal(t, domain.FolderSettings{TitleTemplate: "{date}", RetentionDays: 30, AutoSummary: true}, folders[3].Settings)
+	require.Equal(t, domain.FolderSettings{TitleTemplate: "{date}", RetentionDays: 14}, folders[4].Settings)
 }
 
 func TestFolderTemplateLifecycle(t *testing.T) {
@@ -49,7 +51,7 @@ func TestFolderTemplateLifecycle(t *testing.T) {
 	automatic, err = st.ApplyFolderRule(automatic.SessionID)
 	require.NoError(t, err)
 	require.True(t, automatic.TitleAuto)
-	require.Equal(t, domain.RenderTitleTemplate("Дейли {date}", automatic.CreatedAt), automatic.Title)
+	require.Equal(t, domain.RenderTitleTemplate("Дейли {date}", automatic.CreatedAt, ""), automatic.Title)
 	require.Equal(t, f.ID, automatic.FolderID)
 	restored, err := New(dir)
 	require.NoError(t, err)
@@ -89,7 +91,7 @@ func TestFolderTemplateLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, count)
 	saved, _ = st.Get(automatic.SessionID)
-	require.Equal(t, domain.RenderTitleTemplate("Ретро {time}", saved.CreatedAt), saved.Title)
+	require.Equal(t, domain.RenderTitleTemplate("Ретро {time}", saved.CreatedAt, ""), saved.Title)
 	_, err = st.SetTitle(automatic.SessionID, "Вручную")
 	require.NoError(t, err)
 	saved, _ = st.Get(automatic.SessionID)
@@ -153,4 +155,34 @@ func TestFolderRetentionPreview(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 	_, err = st.PreviewFolderRetention("missing", 1, now)
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestApplyTitlesUsesSavedTopic(t *testing.T) {
+	dir := t.TempDir()
+	st, err := New(dir)
+	require.NoError(t, err)
+	f, err := st.CreateFolder("Daily")
+	require.NoError(t, err)
+	_, err = st.SetFolderSettings(f.ID, domain.FolderSettings{TitleTemplate: "Дейли — {topic}", AutoSummary: true})
+	require.NoError(t, err)
+	for _, topic := range []string{"План релиза", ""} {
+		session, err := st.Create("")
+		require.NoError(t, err)
+		require.NoError(t, st.MoveSessions([]string{session.SessionID}, f.ID, false))
+		_, err = st.SetTopic(session.SessionID, topic)
+		require.NoError(t, err)
+	}
+	st, err = New(dir)
+	require.NoError(t, err)
+	require.True(t, st.Folders()[0].Settings.AutoSummary)
+	count, err := st.ApplyFolderTitles(f.ID)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+	for _, session := range st.sessions {
+		want := "Дейли"
+		if session.Topic != "" {
+			want += " — " + session.Topic
+		}
+		require.Equal(t, want, session.Title)
+	}
 }

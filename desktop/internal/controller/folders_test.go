@@ -101,7 +101,7 @@ func TestCreateSessionAppliesTitleTemplate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, f.ID, session.FolderID)
 	require.True(t, session.TitleAuto)
-	require.Equal(t, domain.RenderTitleTemplate("Дейли {date} {time}", session.CreatedAt), session.Title)
+	require.Equal(t, domain.RenderTitleTemplate("Дейли {date} {time}", session.CreatedAt, ""), session.Title)
 	unmatched, err := c.CreateSession("https://meet.google.com/other")
 	require.NoError(t, err)
 	require.Empty(t, unmatched.Title)

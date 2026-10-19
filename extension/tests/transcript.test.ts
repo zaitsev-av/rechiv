@@ -36,7 +36,7 @@ const generatedSummary = {
   chunked: false,
 };
 vi.mock("../src/shared/llm-client", () => ({
-  generateSummary: vi.fn(async () => generatedSummary),
+  generateConfiguredSummary: vi.fn(async () => generatedSummary),
 }));
 vi.mock("../src/shared/config", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/shared/config")>()),

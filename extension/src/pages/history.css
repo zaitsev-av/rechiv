@@ -1092,6 +1092,13 @@ body {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+.folder-preview-topic {
+  color: var(--accent-deep);
+  opacity: 0.75;
+}
+.folder-settings p.folder-hint.folder-llm-hint {
+  margin-bottom: 10px;
+}
 .folder-settings-row {
   display: flex;
   align-items: center;

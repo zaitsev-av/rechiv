@@ -172,6 +172,12 @@ export class SttApiClient {
     await this._postCore(`/sessions/${sessionId}/speakers`, { speakerId, name });
   }
 
+  async putTopic(sessionId: string, topic: string): Promise<SessionInfo> {
+    return this._folderRequest(`/sessions/${encodeURIComponent(sessionId)}/topic`, "PUT", {
+      topic,
+    });
+  }
+
   async updateTitle(sessionId: string, title: string): Promise<void> {
     const resp = await this._fetchCore(`/sessions/${sessionId}/title`, {
       method: "PUT",
@@ -209,12 +215,16 @@ export class SttApiClient {
     return resp.json();
   }
 
-  async putSummary(sessionId: string, summary: SummaryResult): Promise<void> {
+  async putSummary(sessionId: string, summary: SummaryResult, onlyIfAbsent = false): Promise<void> {
     const resp = await this._fetchCore(`/sessions/${sessionId}/summary`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(onlyIfAbsent ? { "If-None-Match": "*" } : {}),
+      },
       body: JSON.stringify(summary),
     });
+    if (onlyIfAbsent && resp.status === 412) return;
     if (!resp.ok) throw new Error(`PUT /sessions/${sessionId}/summary failed: ${resp.status}`);
   }
 

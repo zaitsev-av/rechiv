@@ -3,9 +3,12 @@ import {
   checkLlmAccess,
   chunkSegments,
   estimateTokens,
+  generateConfiguredSummary,
   generateSummary,
+  generateTopic,
   SYSTEM_PROMPT_MAIN,
   SYSTEM_PROMPT_MAP,
+  SYSTEM_PROMPT_TOPIC,
 } from "../src/shared/llm-client";
 import type { Segment, TranscriptResult } from "../src/shared/types";
 
@@ -246,5 +249,66 @@ describe("checkLlmAccess", () => {
       detail:
         "\u041c\u043e\u0434\u0435\u043b\u044c \u00abM\u00bb \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430",
     });
+  });
+});
+
+describe("тема и общая подготовка LLM", () => {
+  const config = {
+    llmUrl: "https://llm.test",
+    llmModel: "model",
+    llmApiKey: "key",
+    contextWindow: 1000,
+  };
+  it("ограничивает источник бюджетом и запрашивает короткую русскую тему", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: "«План релиза продукта»." } }] }),
+        ),
+      );
+    const topic = await generateTopic("я".repeat(10000), config);
+    expect(topic).toBe("План релиза продукта");
+    const body = JSON.parse(fetchMock.mock.calls.at(-1)![1]!.body as string);
+    expect(body.max_tokens).toBe(128);
+    expect(body.messages[0].content).toBe(SYSTEM_PROMPT_TOPIC);
+    expect(
+      estimateTokens(body.messages[1].content) + estimateTokens(SYSTEM_PROMPT_TOPIC) + 256,
+    ).toBeLessThanOrEqual(config.contextWindow);
+  });
+  it("использует каноническое имя модели и контекст из models для саммари", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ id: "MODEL", max_model_len: 32000 }] })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: "Саммари" } }] })),
+      );
+    const result = await generateConfiguredSummary(
+      {
+        sessionId: "id",
+        callUrl: "",
+        date: "2026-10-15",
+        recordingStarted: "",
+        duration: "",
+        participants: [],
+        segments: [],
+      },
+      { ...config, sttServiceUrl: "", theme: "light", palette: "graphite" },
+    );
+    expect(fetchMock.mock.calls[0][0]).toBe("https://llm.test/models");
+    expect(JSON.parse(fetchMock.mock.calls[1][1]!.body as string).model).toBe("MODEL");
+    expect(result.model).toBe("MODEL");
+  });
+  it.each([
+    " ",
+    "Первая строка\nВторая строка",
+    "я".repeat(121),
+  ])("отклоняет некорректную тему", async (content) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content } }] })),
+    );
+    await expect(generateTopic("Текст", config)).rejects.toThrow();
   });
 });

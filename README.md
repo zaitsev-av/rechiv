@@ -4,12 +4,13 @@
 
 Rechiv records, transcribes and analyses online calls locally on macOS and Linux.
 
-Supported platforms are Yandex Telemost (`telemost.yandex.ru`) and WB Stream
-(`stream.wb.ru`); the architecture lets you add other platforms independently of the
+Supported platforms are Yandex Telemost (`telemost.yandex.ru`), WB Stream
+(`stream.wb.ru`) and Google Meet (`meet.google.com`); the architecture lets you add other platforms independently of the
 local engine and storage.
 
-The Rechiv extension captures the call's WebRTC audio (per participant in WB Stream;
-in Telemost, one mixed stream of the other participants plus your own microphone),
+The Rechiv extension captures the call's WebRTC audio (per participant in WB Stream
+and Google Meet; in Telemost, one mixed stream of the other participants plus your own
+microphone),
 a Go application manages sessions and the queue, and a long-lived Python/GigaAM worker
 recognises speech. Audio and transcripts are never sent to an external STT service.
 
@@ -97,7 +98,7 @@ task build:linux LINUX_ARCH=arm64
 
 ## Usage
 
-1. Open a call in Telemost or WB Stream.
+1. Open a call in Telemost, WB Stream or Google Meet.
 2. Click the extension icon and start recording.
 3. Open the movable live panel if you need it.
 4. Stop the recording after the call.
@@ -113,7 +114,7 @@ GigaAM model is loaded as soon as recording starts, so it is ready for the first
 ## Architecture
 
 ```text
-Telemost / WB Stream
+Telemost / WB Stream / Google Meet
     │ WebRTC audio
     ▼
 Rechiv Extension
@@ -248,6 +249,8 @@ Calls can be organized into virtual folders without moving files on disk. In a c
 
 Folder settings (⋯ in the folder header) offer a title template with `{date}`, `{time}` and `{weekday}` in the machine’s local time. It applies to new calls routed by a link rule and, after confirmation, to existing automatic titles; manual titles and manual moves are preserved. Optional retention deletes calls older than the selected number of days at startup, hourly and immediately after saving, excluding recording and processing calls.
 
+With an LLM connected, `{topic}` adds a short Russian call topic after the transcript is ready; until then, the title omits the topic and its separators. Folder settings can also enable automatic summaries. The extension background makes one attempt, preserves existing summaries (including manual edits), and reports failures in the ready notification; summaries can still be generated manually on the transcript page. Automatic processing requires the extension and its LLM configuration. The desktop web page keeps its own LLM settings in browser localStorage: without those settings, the topic chip and summary toggle are disabled, while saved folder values are preserved. Configuring LLM only on the web page does not enable background processing in the extension.
+
 - `rechiv_list_calls` — find a call by date, title, participant or `folder`;
 - `rechiv_get_summary` — read the summary on its own;
 - `rechiv_get_transcript` — get a fragment by `HH:MM:SS` timestamps or
@@ -264,6 +267,8 @@ an external provider.
 - only Chrome Manifest V3 is supported;
 - participant names depend on the platform's DOM and signalling; in Telemost all other
   participants arrive as one audio stream and the speaker is determined from signalling;
+- in Google Meet the extension decodes the other participants' audio frames itself and
+  splits them by source; calls with five or more participants have not been tested yet;
 - recognition can be noticeably slower without MPS or CUDA;
 - the macOS `.app` is built with `task desktop:app`; `.dmg`, `.deb`, `.rpm` and AppImage
   are not built yet;

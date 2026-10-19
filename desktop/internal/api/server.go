@@ -46,6 +46,7 @@ type Server struct {
 	handler            http.Handler
 	webUIDir           string
 	onboarding         onboardingService
+	summaryMu          sync.Mutex
 	extensionMu        sync.RWMutex
 	lastExtension      *observedExtension
 }
@@ -103,6 +104,7 @@ type sessionResponse struct {
 	Status          domain.SessionStatus    `json:"status"`
 	CallURL         string                  `json:"callUrl"`
 	Title           string                  `json:"title,omitempty"`
+	Topic           string                  `json:"topic,omitempty"`
 	TitleAuto       bool                    `json:"titleAuto,omitempty"`
 	CreatedAt       string                  `json:"createdAt"`
 	FinishedAt      *string                 `json:"finishedAt"`
@@ -175,6 +177,7 @@ func New(
 	mux.HandleFunc("POST /sessions/{id}/vad", server.uploadVAD)
 	mux.HandleFunc("POST /sessions/{id}/speakers", server.updateSpeaker)
 	mux.HandleFunc("PUT /sessions/{id}/title", server.updateTitle)
+	mux.HandleFunc("PUT /sessions/{id}/topic", server.updateTopic)
 	mux.HandleFunc("POST /sessions/{id}/finish", server.finishSession)
 	mux.HandleFunc("POST /sessions/{id}/retry", server.retrySession)
 	mux.HandleFunc("GET /sessions/{id}/live", server.getLiveTranscript)
@@ -473,6 +476,21 @@ func (s *Server) updateSpeaker(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.sessionView(session))
 }
 
+func (s *Server) updateTopic(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Topic string `json:"topic"`
+	}
+	if !folderBody(w, r, &body) {
+		return
+	}
+	session, err := s.controller.Store().SetTopic(r.PathValue("id"), body.Topic)
+	if err != nil {
+		s.folderError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.sessionView(session))
+}
+
 func (s *Server) updateTitle(w http.ResponseWriter, r *http.Request) {
 	var body updateTitleRequest
 	if err := decodeJSON(r, &body); err != nil {
@@ -558,6 +576,19 @@ func (s *Server) putSummary(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, err)
 		return
 	}
+	s.summaryMu.Lock()
+	defer s.summaryMu.Unlock()
+	if r.Header.Get("If-None-Match") == "*" {
+		_, err := os.Stat(s.controller.SummaryPath(r.PathValue("id")))
+		if err == nil {
+			w.WriteHeader(http.StatusPreconditionFailed)
+			return
+		}
+		if !os.IsNotExist(err) {
+			s.internalError(w, err)
+			return
+		}
+	}
 
 	s.putJSONFile(w, r, s.controller.SummaryPath(r.PathValue("id")))
 }
@@ -641,6 +672,7 @@ func (s *Server) sessionView(session *domain.Session) sessionResponse {
 		CallURL:         session.CallURL,
 		Title:           session.Title,
 		TitleAuto:       session.TitleAuto,
+		Topic:           session.Topic,
 		CreatedAt:       session.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"),
 		FinishedAt:      finishedAt,
 		Participants:    participants,
@@ -679,7 +711,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		if origin != "" && (s.validExtensionOrigin(origin) || allowedPageOrigin(origin)) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+extensionVersionHeader)
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-None-Match, "+extensionVersionHeader)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		}
 

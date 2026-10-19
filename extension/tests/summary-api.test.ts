@@ -53,4 +53,20 @@ describe("SttApiClient — summary", () => {
       }),
     );
   });
+  it("автосаммари отправляет If-None-Match и принимает сохранённую вручную версию", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 412 }));
+    await expect(
+      client.putSummary(
+        "abc123",
+        { content: "Авто", createdAt: "", model: "model", chunked: false },
+        true,
+      ),
+    ).resolves.toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:9876/sessions/abc123/summary",
+      expect.objectContaining({ headers: expect.objectContaining({ "If-None-Match": "*" }) }),
+    );
+  });
 });

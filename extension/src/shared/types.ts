@@ -1,4 +1,5 @@
 export interface FolderSettings {
+  autoSummary?: boolean;
   titleTemplate?: string;
   retentionDays?: number;
 }
@@ -20,6 +21,7 @@ export interface SessionInfo {
   callUrl: string;
   title?: string;
   titleAuto?: boolean;
+  topic?: string;
   createdAt: string;
   finishedAt: string | null;
   participants: Participant[];

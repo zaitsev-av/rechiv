@@ -1,7 +1,7 @@
 import { createPageSttApiClient, type SttApiClient } from "@shared/api-client";
-import { fetchModelInfo, getConfig, isLlmConfigured } from "@shared/config";
+import { getConfig, isLlmConfigured } from "@shared/config";
 import { startInlineEdit } from "@shared/inline-edit";
-import { generateSummary } from "@shared/llm-client";
+import { generateConfiguredSummary } from "@shared/llm-client";
 import { ensureLlmPermission, LLM_PERMISSION_DENIED } from "@shared/llm-permission";
 import { setupScrollTop } from "@shared/scroll-top";
 import { speakerInitials } from "@shared/speaker-initials";
@@ -401,13 +401,7 @@ async function handleGenerateSummary(e: Event) {
 
   try {
     const config = await getConfig();
-    const modelInfo = await fetchModelInfo(config.llmUrl, config.llmModel, config.llmApiKey);
-    summaryData = await generateSummary(transcript, {
-      llmUrl: config.llmUrl,
-      llmModel: modelInfo.modelId,
-      llmApiKey: config.llmApiKey,
-      contextWindow: modelInfo.contextWindow,
-    });
+    summaryData = await generateConfiguredSummary(transcript, config);
 
     enableSummaryTab();
     renderSummary();

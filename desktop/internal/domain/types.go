@@ -23,6 +23,7 @@ type Session struct {
 	Status             SessionStatus           `json:"status"`
 	CallURL            string                  `json:"callUrl"`
 	Title              string                  `json:"title,omitempty"`
+	Topic              string                  `json:"topic,omitempty"`
 	TitleAuto          bool                    `json:"titleAuto,omitempty"`
 	CreatedAt          time.Time               `json:"createdAt"`
 	FinishedAt         *time.Time              `json:"finishedAt,omitempty"`

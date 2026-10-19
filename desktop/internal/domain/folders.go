@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,6 +13,7 @@ type FolderRule struct {
 	URL string `json:"url"`
 }
 type FolderSettings struct {
+	AutoSummary   bool   `json:"autoSummary,omitempty"`
 	TitleTemplate string `json:"titleTemplate,omitempty"`
 	RetentionDays int    `json:"retentionDays,omitempty"`
 }
@@ -53,7 +55,7 @@ func ValidateTitleTemplate(template string) (string, error) {
 		return "", fmt.Errorf("шаблон длиннее 200 символов")
 	}
 	rest := template
-	for _, token := range []string{"{date}", "{time}", "{weekday}"} {
+	for _, token := range []string{"{date}", "{time}", "{weekday}", "{topic}"} {
 		if strings.Count(rest, token) > 1 {
 			return "", fmt.Errorf("подстановка %s повторяется", token)
 		}
@@ -65,12 +67,26 @@ func ValidateTitleTemplate(template string) (string, error) {
 	return template, nil
 }
 
-func RenderTitleTemplate(template string, createdAt time.Time) string {
+var topicBefore = regexp.MustCompile(`(?:^|\s)[—-]\s*$|[:,]\s*$`)
+var topicAfter = regexp.MustCompile(`^\s*(?:[—-](?:\s+|$)|[:,]\s*)`)
+
+func RenderTitleTemplate(template string, createdAt time.Time, topic string) string {
+	if topic == "" {
+		if before, after, found := strings.Cut(template, "{topic}"); found {
+			left, right := topicBefore.ReplaceAllString(before, ""), topicAfter.ReplaceAllString(after, "")
+			template = left + right
+			if left != before || right != after {
+				template = left + " " + right
+			}
+		}
+	}
 	local := createdAt.In(time.Local)
 	weekdays := [...]string{"воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"}
-	return strings.NewReplacer(
+	rendered := strings.NewReplacer(
+		"{topic}", topic,
 		"{date}", local.Format("02.01.2006"),
 		"{time}", local.Format("15:04"),
 		"{weekday}", weekdays[local.Weekday()],
 	).Replace(template)
+	return strings.Join(strings.Fields(rendered), " ")
 }
