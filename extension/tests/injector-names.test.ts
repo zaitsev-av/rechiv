@@ -124,7 +124,10 @@ describe("доставка VAD-таймлайна", () => {
       .filter((m) => m?.action === "uploadVadTimeline");
   }
 
-  it("отправляет таймлайн сразу, не дожидаясь финиша", async () => {
+  it.each([
+    "RECHIV_CAPTURE_STOPPED",
+    "RECHIV_VAD_TIMELINE",
+  ])("пересылает %s в фон", async (type) => {
     await runInjector("telemost.yandex.ru");
     const timeline = {
       localParticipantId: "local-1",
@@ -136,7 +139,7 @@ describe("доставка VAD-таймлайна", () => {
     window.dispatchEvent(
       new MessageEvent("message", {
         source: window,
-        data: { type: "RECHIV_CAPTURE_STOPPED", vadTimeline: timeline },
+        data: { type, vadTimeline: timeline },
       }),
     );
     for (let i = 0; i < 10; i++) await Promise.resolve();

@@ -78,6 +78,10 @@ function handleInterceptorMessage(event: MessageEvent) {
       handleChunk(msg.speakerId, msg.data, msg.timestamp, msg.attribution);
       break;
 
+    case "RECHIV_VAD_TIMELINE":
+      if (currentSessionId) sendVadTimeline(currentSessionId, msg.vadTimeline);
+      break;
+
     case "RECHIV_CAPTURE_STOPPED":
       pendingVadTimeline = msg.vadTimeline;
       captureStopAcknowledged = true;

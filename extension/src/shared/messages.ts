@@ -13,6 +13,7 @@ export type InterceptorMessage =
       attribution?: { participantId: string; name: string };
     }
   | { type: "RECHIV_CAPTURE_STOPPED"; vadTimeline?: VadTimeline }
+  | { type: "RECHIV_VAD_TIMELINE"; vadTimeline: VadTimeline }
   | { type: "RECHIV_SPEAKER_MAP"; map: Record<string, string> }
   | { type: "RECHIV_START_CAPTURE"; sessionId: string; uploadToken?: string }
   | { type: "RECHIV_STOP_CAPTURE" };

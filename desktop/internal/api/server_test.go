@@ -722,6 +722,62 @@ func Test_uploadChunk(t *testing.T) {
 	}
 }
 
+func Test_uploadVADBeacon(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		token      string
+		origin     string
+		wantStatus int
+	}{
+		{"токен сессии", "session", "https://telemost.yandex.ru", http.StatusOK},
+		{"без токена", "", "https://telemost.yandex.ru", http.StatusUnauthorized},
+		{"неверный токен", "invalid", "https://telemost.yandex.ru", http.StatusUnauthorized},
+		{"токен другой сессии", "other", "https://telemost.yandex.ru", http.StatusUnauthorized},
+		{"чужое расширение", "session", extensionOriginPrefix + foreignExtensionID, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, control := newTestServer(t, healthyEngine())
+			session, err := control.CreateSession("https://telemost.yandex.ru/j/1")
+			require.NoError(t, err)
+			token := tc.token
+			if token == "session" {
+				token = session.UploadToken
+			} else if token == "other" {
+				other, err := control.CreateSession("https://telemost.yandex.ru/j/2")
+				require.NoError(t, err)
+				token = other.UploadToken
+			}
+			body, err := json.Marshal(map[string]any{
+				"uploadToken":  token,
+				"participants": []controller.VADParticipant{{ParticipantID: "guest", Name: "Гость"}},
+				"events":       []controller.VADEvent{{At: 0, Active: []string{"guest"}}},
+				"micEvents":    []controller.VADMicEvent{{At: 0, Unmuted: []string{"guest"}}},
+			})
+			require.NoError(t, err)
+			req := request(http.MethodPost, "/sessions/"+session.SessionID+"/vad", bytes.NewReader(body), "")
+			req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
+			req.Header.Set("Origin", tc.origin)
+			req.Header.Set("Sec-Fetch-Mode", "no-cors")
+			req.Header.Set("Sec-Fetch-Site", "cross-site")
+			resp := doRequest(t, handler, req)
+			defer resp.Body.Close()
+			require.Equal(t, tc.wantStatus, resp.StatusCode)
+			if tc.origin == "https://telemost.yandex.ru" {
+				require.Equal(t, tc.origin, resp.Header.Get("Access-Control-Allow-Origin"))
+			}
+			if tc.wantStatus == http.StatusOK {
+				var stored controller.VADTimeline
+				require.NoError(t, controller.ReadJSON(control.VADPath(session.SessionID), &stored))
+				require.Equal(t, []string{"guest"}, stored.Events[0].Active)
+				require.Equal(t, []string{"guest"}, stored.MicEvents[0].Unmuted)
+			} else {
+				_, err := os.Stat(control.VADPath(session.SessionID))
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+		})
+	}
+}
+
 func Test_uploadVAD(t *testing.T) {
 	t.Run("сохраняет и сортирует таймлайн", func(t *testing.T) {
 		handler, control := newTestServer(t, healthyEngine())

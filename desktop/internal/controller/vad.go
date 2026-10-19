@@ -34,6 +34,9 @@ func (c *Controller) VADPath(sessionID string) string {
 }
 
 func (c *Controller) SaveVADTimeline(sessionID string, timeline VADTimeline) error {
+	c.vadMu.Lock()
+	defer c.vadMu.Unlock()
+
 	if _, err := c.store.Get(sessionID); err != nil {
 		return err
 	}
@@ -60,6 +63,19 @@ func (c *Controller) SaveVADTimeline(sessionID string, timeline VADTimeline) err
 	sort.SliceStable(normalized.MicEvents, func(i, j int) bool {
 		return normalized.MicEvents[i].At < normalized.MicEvents[j].At
 	})
+
+	previous, err := c.readVADTimeline(sessionID)
+	if err != nil {
+		return err
+	}
+	// Снимки накопительные: ни один из двух потоков событий не должен откатываться.
+	if previous != nil && (len(normalized.Participants) < len(previous.Participants) ||
+		len(normalized.Events) < len(previous.Events) ||
+		len(normalized.MicEvents) < len(previous.MicEvents) ||
+		len(previous.Events) > 0 && normalized.Events[len(normalized.Events)-1].At < previous.Events[len(previous.Events)-1].At ||
+		len(previous.MicEvents) > 0 && normalized.MicEvents[len(normalized.MicEvents)-1].At < previous.MicEvents[len(previous.MicEvents)-1].At) {
+		return nil
+	}
 
 	return WriteJSON(c.VADPath(sessionID), normalized)
 }

@@ -437,13 +437,28 @@ func (s *Server) uploadChunk(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) uploadVAD(w http.ResponseWriter, r *http.Request) {
-	var timeline controller.VADTimeline
-	if err := decodeJSON(r, &timeline); err != nil {
+	sessionID := r.PathValue("id")
+	session, err := s.controller.Store().Get(sessionID)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+
+	var body struct {
+		controller.VADTimeline
+		UploadToken string `json:"uploadToken"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if err := s.controller.SaveVADTimeline(r.PathValue("id"), timeline); err != nil {
+	if !s.authorized(r) && !tokensEqual(body.UploadToken, session.UploadToken) {
+		writeError(w, http.StatusUnauthorized, "Неверный токен загрузки")
+		return
+	}
+
+	if err := s.controller.SaveVADTimeline(sessionID, body.VADTimeline); err != nil {
 		if errors.Is(err, controller.ErrInvalidVADTimeline) {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
 			return
@@ -730,7 +745,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if strings.HasSuffix(r.URL.Path, "/chunks") {
+		if strings.HasSuffix(r.URL.Path, "/chunks") || strings.HasSuffix(r.URL.Path, "/vad") {
 			next.ServeHTTP(w, r)
 			return
 		}

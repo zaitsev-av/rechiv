@@ -35,6 +35,7 @@ type Controller struct {
 
 	now         func() time.Time
 	retentionMu sync.Mutex
+	vadMu       sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc

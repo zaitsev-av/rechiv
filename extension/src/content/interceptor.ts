@@ -50,6 +50,8 @@ const CHUNK_TIMESLICE = 1_000;
 /** Данные уже ушли beacon'ом — onstop не должен слать дубль. */
 const beaconFlushed = new WeakSet<MediaRecorder>();
 let speakerMapInterval: ReturnType<typeof setInterval> | null = null;
+let vadInterval: ReturnType<typeof setInterval> | null = null;
+let lastVadSnapshot: string | null = null;
 const pageAdapter = pickPageAdapter(location.host);
 const localFromSender = capabilitiesForHost(location.host).localAudio === "sender";
 const peerConnections = new Set<RTCPeerConnection>();
@@ -101,6 +103,14 @@ export function installInterceptor(): void {
       const url = `${captureSttUrl}/sessions/${captureSessionId}/chunks`;
       if (navigator.sendBeacon(url, form)) beaconFlushed.add(recorder);
       console.log(PREFIX, "sendBeacon sent for", speakerId, "size:", blob.size);
+    }
+
+    const vadTimeline = pageAdapter.getVadTimeline?.();
+    if (vadTimeline && captureUploadToken) {
+      navigator.sendBeacon(
+        `${captureSttUrl}/sessions/${captureSessionId}/vad`,
+        JSON.stringify({ ...vadTimeline, uploadToken: captureUploadToken }),
+      );
     }
   });
 }
@@ -244,6 +254,7 @@ function startCapture(): void {
   captureStartTime = Date.now();
   captureStartPerf = performance.now();
   pageAdapter.startVadCapture?.(captureStartPerf);
+  startVadUpdates();
   localMuted = pageAdapter.isLocalMuted();
   refreshLocalSenders();
   console.log(
@@ -266,6 +277,7 @@ function startCapture(): void {
 function stopCapture(): void {
   console.log(PREFIX, "stopCapture, active recorders:", recorders.size);
   isCapturing = false;
+  stopVadUpdates();
   const vadTimeline = pageAdapter.getVadTimeline?.();
   notify({
     type: "RECHIV_CAPTURE_STOPPED",
@@ -297,6 +309,28 @@ function stopCapture(): void {
   if (audioContext) {
     void audioContext.close().catch(() => undefined);
     audioContext = null;
+  }
+}
+
+function startVadUpdates(): void {
+  stopVadUpdates();
+  lastVadSnapshot = null;
+  if (!pageAdapter.getVadTimeline) return;
+
+  vadInterval = setInterval(() => {
+    const vadTimeline = pageAdapter.getVadTimeline?.();
+    if (!vadTimeline) return;
+    const snapshot = JSON.stringify(vadTimeline);
+    if (snapshot === lastVadSnapshot) return;
+    lastVadSnapshot = snapshot;
+    notify({ type: "RECHIV_VAD_TIMELINE", vadTimeline });
+  }, 30_000);
+}
+
+function stopVadUpdates(): void {
+  if (vadInterval !== null) {
+    clearInterval(vadInterval);
+    vadInterval = null;
   }
 }
 
