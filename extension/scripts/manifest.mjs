@@ -5,7 +5,7 @@ export function generateManifest(source, platforms) {
   const matches = platforms.flatMap(({ hosts }) => hosts.map((host) => `https://${host}/*`));
   return {
     ...source,
-    host_permissions: [...matches, "http://localhost:9876/*", "http://127.0.0.1:9876/*"],
+    host_permissions: [...matches, "http://rechiv.localhost:9876/*"],
     content_scripts: source.content_scripts.map((script) =>
       script.matches.length === 0 ? { ...script, matches: [...matches] } : script,
     ),

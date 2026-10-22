@@ -13,6 +13,8 @@ type FolderRule struct {
 	URL string `json:"url"`
 }
 type FolderSettings struct {
+	AutoRecord    bool   `json:"autoRecord,omitempty"`
+	LivePanel     bool   `json:"livePanel,omitempty"`
 	AutoSummary   bool   `json:"autoSummary,omitempty"`
 	TitleTemplate string `json:"titleTemplate,omitempty"`
 	RetentionDays int    `json:"retentionDays,omitempty"`
@@ -31,21 +33,26 @@ func NormalizeCallURL(raw string) string {
 	if raw == "" || strings.ContainsAny(raw, " \t\r\n") {
 		return ""
 	}
+
 	if !strings.Contains(raw, "://") {
 		raw = "https://" + strings.TrimPrefix(raw, "//")
 	}
+
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return ""
 	}
+
 	host := strings.TrimPrefix(strings.ToLower(u.Host), "www.")
 	if !strings.Contains(u.Hostname(), ".") && u.Hostname() != "localhost" && !strings.Contains(u.Hostname(), ":") {
 		return ""
 	}
+
 	path := u.EscapedPath()
 	if u.RawPath != "" {
 		path = u.RawPath
 	}
+
 	return host + strings.TrimRight(path, "/")
 }
 

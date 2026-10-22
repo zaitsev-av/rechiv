@@ -1,16 +1,19 @@
 import type { AppPalette, AppTheme } from "./theme";
 
-/** Копия из chrome.storage для синхронного чтения до первой отрисовки. */
+// Синхронная копия оформления для первой отрисовки.
 const THEME_CACHE_KEY = "rechiv.theme";
 const PALETTE_CACHE_KEY = "rechiv.palette";
 
 /** На сайте созвона localStorage чужой. */
-function isExtensionPage(): boolean {
-  return location.protocol === "chrome-extension:";
+function isAppPage(): boolean {
+  return (
+    location.protocol === "chrome-extension:" ||
+    (location.protocol === "http:" && location.hostname === "rechiv.localhost")
+  );
 }
 
 function read(key: string): string | null {
-  if (!isExtensionPage()) return null;
+  if (!isAppPage()) return null;
   try {
     return localStorage.getItem(key);
   } catch {
@@ -29,7 +32,7 @@ export function readCachedPalette(): AppPalette | null {
 }
 
 export function cacheAppearance(appearance: { theme?: AppTheme; palette?: AppPalette }): void {
-  if (!isExtensionPage()) return;
+  if (!isAppPage()) return;
   try {
     if (appearance.theme) localStorage.setItem(THEME_CACHE_KEY, appearance.theme);
     if (appearance.palette) localStorage.setItem(PALETTE_CACHE_KEY, appearance.palette);

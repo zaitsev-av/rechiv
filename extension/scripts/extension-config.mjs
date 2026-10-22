@@ -26,12 +26,10 @@ export function extensionConfig(root) {
           { src: "src/shared/theme-tokens.css", dest: "shared" },
           { src: "src/popup/popup.html", dest: "popup" },
           { src: "src/popup/popup.css", dest: "popup" },
-          { src: "src/pages/transcript.html", dest: "pages" },
-          { src: "src/pages/transcript.css", dest: "pages" },
-          { src: "src/pages/history.html", dest: "pages" },
-          { src: "src/pages/settings.html", dest: "pages" },
-          { src: "src/pages/history.css", dest: "pages" },
-          { src: "src/pages/settings.css", dest: "pages" },
+          // Страницы отдаёт desktop; прежние адреса переадресуют туда.
+          { src: "src/pages/redirect.html", dest: "pages", rename: "history.html" },
+          { src: "src/pages/redirect.html", dest: "pages", rename: "transcript.html" },
+          { src: "src/pages/redirect.html", dest: "pages", rename: "settings.html" },
           { src: "public/icons", dest: "." },
         ],
       }),
@@ -43,9 +41,7 @@ export function extensionConfig(root) {
         input: {
           "background/service-worker": r("src/background/service-worker.ts"),
           "popup/popup": r("src/popup/popup.ts"),
-          "pages/transcript": r("src/pages/transcript.ts"),
-          "pages/history": r("src/pages/history.ts"),
-          "pages/settings": r("src/pages/settings.ts"),
+          "pages/redirect": r("src/pages/redirect.ts"),
         },
         output: {
           entryFileNames: "[name].js",

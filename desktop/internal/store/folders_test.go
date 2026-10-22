@@ -160,3 +160,35 @@ func TestFolderColorsCycle(t *testing.T) {
 		require.Equal(t, i%5, f.Color)
 	}
 }
+
+func TestStoreChangesAndFolderForCallURL(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	changes := s.Changes()
+	folder, err := s.CreateFolder("Дейли")
+	require.NoError(t, err)
+	select {
+	case <-changes:
+	default:
+		t.Fatal("изменение папок не оповестило подписчиков")
+	}
+
+	changes = s.Changes()
+	_, err = s.Create("https://telemost.yandex.ru/j/1")
+	require.NoError(t, err)
+	select {
+	case <-changes:
+	default:
+		t.Fatal("новый созвон не оповестил подписчиков")
+	}
+
+	_, ok := s.FolderForCallURL("https://telemost.yandex.ru/j/1")
+	require.False(t, ok)
+	_, _, err = s.AddFolderRule(folder.ID, "https://telemost.yandex.ru/j/1")
+	require.NoError(t, err)
+	found, ok := s.FolderForCallURL("telemost.yandex.ru/j/1/")
+	require.True(t, ok)
+	require.Equal(t, folder.ID, found.ID)
+	_, ok = s.FolderForCallURL("")
+	require.False(t, ok)
+}

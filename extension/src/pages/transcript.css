@@ -125,10 +125,22 @@ body {
   position: relative;
 }
 
+.tabbar {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 8px 0;
+  background: var(--canvas);
+}
+
 .tabs {
   display: inline-flex;
   gap: 4px;
-  margin-bottom: 18px;
   padding: 5px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -344,72 +356,61 @@ body {
 
 .segments {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   flex-direction: column;
 }
 
+/* Реплика как в мессенджере: аватар слева, имя и время строкой, текст под ними. */
 .segment {
   position: relative;
   display: grid;
-  min-height: 0;
-  padding: 13px 17px;
-  grid-template-columns: 58px 152px 1fr;
-  gap: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 17px;
-  box-shadow: var(--shadow-sm);
-  transition:
-    border-color 170ms ease,
-    box-shadow 170ms ease,
-    transform 170ms ease;
+  padding: 10px 12px;
+  grid-template-columns: 40px minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 2px;
+  border-radius: 14px;
+  transition: background 150ms ease;
 }
 
 .segment:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
+  background: var(--surface);
+}
+
+.segment-avatar {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  grid-row: span 2;
+  place-items: center;
+  color: var(--speaker-fg);
+  font-size: 13px;
+  font-weight: 760;
+  background: var(--speaker-bg);
+  border-radius: 12px;
+}
+
+.segment-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
 .segment-time {
-  padding-top: 2px;
   color: var(--muted-light);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1.55;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .segment-speaker {
-  padding-top: 1px;
   color: var(--ink);
-  font-size: 11px;
-  font-weight: 780;
-  letter-spacing: 0.01em;
+  font-size: 14px;
+  font-weight: 700;
   line-height: 1.45;
   cursor: pointer;
   overflow-wrap: anywhere;
-  position: relative;
-  padding-left: 34px;
-  min-height: 24px;
-}
-
-.segment-speaker[data-initials]::before {
-  position: absolute;
-  top: -3px;
-  left: 0;
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  color: var(--speaker-fg);
-  font-size: 10px;
-  font-weight: 760;
-  letter-spacing: 0;
-  background: var(--speaker-bg);
-  border-radius: 50%;
-  content: attr(data-initials);
 }
 
 .segment-speaker:hover {
@@ -421,7 +422,7 @@ body {
 .segment-text {
   min-width: 0;
   color: var(--ink-soft);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.6;
 }
 
@@ -508,8 +509,6 @@ body {
 
 .summary-content {
   position: relative;
-  min-height: 460px;
-  padding: clamp(28px, 6vw, 64px);
   color: var(--ink-soft);
   font-family: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   font-size: 15px;
@@ -520,16 +519,162 @@ body {
   box-shadow: var(--shadow-md);
 }
 
-.summary-content::before {
-  display: block;
-  margin-bottom: 28px;
-  color: var(--muted);
+.summary-content.hidden,
+.summary-empty.hidden,
+.summary-note.hidden,
+.tab-actions.hidden,
+.tab-mark.hidden {
+  display: none;
+}
+
+/* Шапка карточки: кто и когда сделал, правка и форматирование — рядом с текстом. */
+.summary-head {
+  position: sticky;
+  top: 62px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 10px 24px;
   font-family: var(--font-sans);
-  font-size: 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  border-radius: 24px 24px 0 0;
+}
+
+.summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.summary-meta strong {
+  color: var(--ink);
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  content: "AI meeting brief";
+}
+
+.summary-content.editing .summary-meta {
+  display: none;
+}
+
+.summary-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.summary-tools .btn,
+.tab-actions .btn {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+.summary-tools .btn.hidden,
+.tab-actions .btn.hidden {
+  display: none;
+}
+
+.summary-body {
+  padding: clamp(22px, 5vw, 56px);
+}
+
+.summary-content:not(.editing) .summary-body {
+  cursor: text;
+}
+
+.summary-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px clamp(22px, 5vw, 56px) 0;
+  padding: 10px 12px;
+  color: var(--accent-deep);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--accent-soft);
+  border-radius: 10px;
+}
+
+.summary-note-spinner,
+.tab-mark-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+.summary-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 64px 20px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: var(--shadow-md);
+}
+
+.summary-empty h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.summary-empty p {
+  max-width: 400px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.btn-ghost {
+  color: var(--muted);
+  background: transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-soft);
+}
+
+.btn-accent {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+}
+
+.tab-mark {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-deep);
+}
+
+.tab-mark-empty {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 10px;
+  background: var(--chip-bg);
+  border-radius: 99px;
 }
 
 .summary-content h1 {
@@ -571,54 +716,6 @@ body {
 .summary-content li {
   margin: 6px 0;
   padding-left: 3px;
-}
-
-/* Над панелью действий. */
-.scroll-top {
-  bottom: 92px;
-}
-
-.action-dock {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 10;
-  display: flex;
-  justify-content: center;
-  padding: 14px 20px 18px;
-  pointer-events: none;
-}
-
-.action-dock.hidden {
-  display: none;
-}
-
-.action-dock-inner {
-  display: flex;
-  max-width: calc(100vw - 32px);
-  padding: 7px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 17px;
-  box-shadow: var(--shadow-md);
-  pointer-events: auto;
-}
-
-.action-dock .btn {
-  min-height: 39px;
-  padding: 0 14px;
-  font-size: 11px;
-}
-
-.action-divider {
-  width: 1px;
-  height: 25px;
-  margin: 0 2px;
-  background: var(--border);
 }
 
 .btn-spinner {
@@ -768,18 +865,16 @@ body {
   }
 
   .segment {
-    padding: 15px 17px;
-    grid-template-columns: 1fr;
-    gap: 7px;
+    padding: 10px 4px;
+    grid-template-columns: 32px minmax(0, 1fr);
+    column-gap: 10px;
   }
 
-  .segment-time,
-  .segment-speaker {
-    display: inline-block;
-  }
-
-  .segment-text {
-    margin-top: 4px;
+  .segment-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 11px;
+    border-radius: 10px;
   }
 
   .filter-bar {
@@ -792,13 +887,12 @@ body {
     border: none;
   }
 
-  .action-dock-inner {
-    overflow-x: auto;
-    justify-content: flex-start;
+  .tab-actions {
+    margin-left: 0;
   }
 
-  .action-divider {
-    display: none;
+  .summary-head {
+    padding: 10px 14px;
   }
 }
 
@@ -806,17 +900,15 @@ body {
   .btn-spinner::before,
   .live-indicator-dot,
   .live-waiting-wave i,
-  .loading-spinner {
+  .loading-spinner,
+  .tab-mark-spinner,
+  .summary-note-spinner {
     animation: none;
   }
 
   .filter-item label,
   .segment,
   .tab {
-    transition: none;
-  }
-
-  .action-dock .btn {
     transition: none;
   }
 }
@@ -866,23 +958,24 @@ body {
 }
 
 .summary-edited {
-  margin-bottom: 20px;
-  color: var(--muted);
-  font-family: var(--font-sans);
-  font-size: 12px;
+  padding: 1px 8px;
+  color: var(--accent-deep);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  border-radius: 99px;
+}
+
+.summary-edited.hidden {
+  display: none;
 }
 
 .summary-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 8px;
-  margin-bottom: 20px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-soft);
   border-radius: 10px;
 }
 
@@ -920,7 +1013,6 @@ body {
   height: 18px;
 }
 
-.summary-toolbar.hidden,
-#footer-summary .hidden {
+.summary-toolbar.hidden {
   display: none;
 }

@@ -3,7 +3,7 @@ module rechiv/desktop
 go 1.27.0
 
 require (
-	github.com/energye/systray v1.0.3
+	fyne.io/systray v1.12.2
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/stretchr/testify v1.11.1

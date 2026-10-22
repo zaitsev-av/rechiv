@@ -1,17 +1,14 @@
+import { isPalette, syncDesktopAppearance } from "./appearance";
 import { type Config, getConfig } from "./config";
 import { keyValueStore } from "./key-value-store";
 import { cacheAppearance } from "./theme-cache";
 
+export { isPalette, PALETTES } from "./appearance";
+
 export type AppTheme = Config["theme"];
 export type AppPalette = Config["palette"];
 
-export const PALETTES: readonly AppPalette[] = ["graphite", "stone", "amber"];
-
 type ThemeTarget = HTMLElement;
-
-export function isPalette(value: unknown): value is AppPalette {
-  return PALETTES.includes(value as AppPalette);
-}
 
 export function applyTheme(theme: AppTheme, target: ThemeTarget = document.documentElement): void {
   target.dataset.theme = theme;
@@ -36,8 +33,19 @@ export function applyAppearance(
 
 export async function applySavedTheme(
   target: ThemeTarget = document.documentElement,
-): Promise<void> {
-  applyAppearance(await getConfig(), target);
+): Promise<Config> {
+  const config = await getConfig();
+  applyAppearance(config, target);
+  return config;
+}
+
+export async function applyDesktopTheme(
+  target: ThemeTarget = document.documentElement,
+): Promise<Config> {
+  await applySavedTheme(target);
+  const config = await syncDesktopAppearance();
+  applyAppearance(config, target);
+  return config;
 }
 
 export function watchThemeChanges(target: ThemeTarget = document.documentElement): () => void {

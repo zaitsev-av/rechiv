@@ -6,7 +6,6 @@
   "description": "Локальная запись, транскрибация и анализ созвонов",
   "permissions": ["tabs", "notifications", "storage", "alarms"],
   "host_permissions": [],
-  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
@@ -26,7 +25,7 @@
       "all_frames": true
     },
     {
-      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
+      "matches": ["http://rechiv.localhost/*"],
       "js": ["content/presence.js"],
       "run_at": "document_idle"
     }

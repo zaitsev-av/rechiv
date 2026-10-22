@@ -15,10 +15,13 @@ export async function clearCachedSttToken(): Promise<void> {
   await keyValueStore.remove(TOKEN_STORAGE_KEY);
 }
 
-export async function ensureSttToken(sttUrl: string): Promise<string> {
+export async function ensureSttToken(sttUrl: string, signal?: AbortSignal | null): Promise<string> {
   const cached = await getCachedSttToken();
   if (cached) return cached;
-  const response = await fetch(`${sttUrl}/auth/token`, { headers: extensionVersionHeaders() });
+  const response = await fetch(`${sttUrl}/auth/token`, {
+    headers: extensionVersionHeaders(),
+    signal,
+  });
   if (!response.ok) throw new Error(`Bootstrap STT token failed: ${response.status}`);
   const data = (await response.json()) as { token: string };
   if (!data.token) throw new Error("STT-сервис вернул пустой токен");

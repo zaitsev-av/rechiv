@@ -779,6 +779,7 @@ export class LiveTranscriptOverlay {
     this.finishButton.addEventListener("blur", this.disarmFinish);
     this.latestButton.addEventListener("click", this.scrollToLatest);
     this.feed.addEventListener("scroll", this.handleFeedScroll);
+    this.feed.addEventListener("wheel", this.handleFeedWheel, { passive: false });
     document.addEventListener("fullscreenchange", this.handleFullscreenChange);
     window.addEventListener("resize", this.handleViewportResize);
 
@@ -815,6 +816,7 @@ export class LiveTranscriptOverlay {
     this.finishButton.removeEventListener("blur", this.disarmFinish);
     this.latestButton.removeEventListener("click", this.scrollToLatest);
     this.feed.removeEventListener("scroll", this.handleFeedScroll);
+    this.feed.removeEventListener("wheel", this.handleFeedWheel);
     document.removeEventListener("fullscreenchange", this.handleFullscreenChange);
     window.removeEventListener("resize", this.handleViewportResize);
     window.removeEventListener("pointermove", this.handlePointerMove);
@@ -962,6 +964,15 @@ export class LiveTranscriptOverlay {
     return this.feed.scrollHeight - this.feed.scrollTop - this.feed.clientHeight < 80;
   }
 
+  /** Страница созвона может отменять колёсико у всего документа — прокручиваем ленту сами. */
+  private handleFeedWheel = (event: WheelEvent): void => {
+    const lineHeight = 16;
+    const scale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? lineHeight : 1;
+    this.feed.scrollTop += event.deltaY * scale;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   private scrollToLatest = (): void => {
     this.feed.scrollTop = this.feed.scrollHeight;
     this.latestButton.classList.add("hidden");
@@ -1055,15 +1066,15 @@ export class LiveTranscriptOverlay {
     this.status.textContent = label;
   }
 
-  /** В Телемосте имена собеседников появятся только после обработки — без пояснения «Спикер N» выглядит поломкой. */
+  /** В Телемосте имена приходят с разметкой речи с задержкой — без пояснения «Неизвестный участник» выглядит поломкой. */
   private renderNotice(live: LiveTranscriptResult): void {
     const recording = !live.isFinal && live.status === "recording";
     const show = this.mixedAudioPlatform && recording && live.participants.length > 1;
     this.notice.hidden = !show;
     if (show && !this.notice.textContent) {
       this.notice.textContent =
-        "Имена собеседников появятся в итоговом транскрипте: Телемост отдаёт их общим потоком, " +
-        "и распознать, кто говорил, получается только после обработки.";
+        "Телемост отдаёт собеседников общим потоком: имя подставляется по разметке речи, " +
+        "она приходит раз в 30 секунд, поэтому последние реплики подписываются с задержкой.";
     }
   }
 

@@ -1,0 +1,18 @@
+{
+  "sessionId": "cd14e6f3-c1b8-4200-91bc-cbfa6dae433b",
+  "speakerId": "remote-room-mix",
+  "chunkIndex": 0,
+  "offset": 0,
+  "duration": 2,
+  "webmPath": "",
+  "wavPath": "",
+  "status": "completed",
+  "attempts": 0,
+  "segments": [
+    {
+      "text": "Давайте начнём",
+      "start": 0,
+      "end": 2
+    }
+  ]
+}

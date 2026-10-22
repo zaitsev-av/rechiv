@@ -1,13 +1,12 @@
-import { createPageSttApiClient } from "@shared/api-client";
+import { createPageSttApiClient, type LlmSettingsInput } from "@shared/api-client";
+import { saveAppearance } from "@shared/appearance";
 import {
   bindAppearanceControls,
   readAppearanceControls,
   setAppearanceControls,
 } from "@shared/appearance-controls";
-import { DEFAULT_STT_URL, getConfig, saveConfig } from "@shared/config";
-import { checkLlmAccess } from "@shared/llm-client";
-import { ensureLlmPermission, LLM_PERMISSION_DENIED } from "@shared/llm-permission";
-import { applyAppearance, applySavedTheme, watchThemeChanges } from "@shared/theme";
+import { DESKTOP_URL } from "@shared/config";
+import { applyAppearance, applyDesktopTheme, watchThemeChanges } from "@shared/theme";
 import { getErrorMessage } from "@shared/utils";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -24,6 +23,7 @@ const toggleKeyButton = $<HTMLButtonElement>("#btn-toggle-key");
 const health = $("#health");
 const healthTitle = $("#health-title");
 const healthDetail = $("#health-detail");
+const api = createPageSttApiClient(DESKTOP_URL);
 
 type Tone = "ok" | "warning" | "error" | "";
 
@@ -38,10 +38,10 @@ function setHealth(
 }
 
 async function checkHealth(): Promise<void> {
-  setHealth("checking", "Проверяю локальное приложение", DEFAULT_STT_URL);
+  setHealth("checking", "Проверяю локальное приложение", DESKTOP_URL);
 
   try {
-    const engine = (await createPageSttApiClient(DEFAULT_STT_URL).health()).engine;
+    const engine = (await createPageSttApiClient(DESKTOP_URL).health()).engine;
     if (engine?.status === "error") {
       setHealth(
         "warning",
@@ -58,12 +58,12 @@ async function checkHealth(): Promise<void> {
       );
       return;
     }
-    setHealth("ready", "Приложение готово к записи", `Отвечает на ${DEFAULT_STT_URL}`);
+    setHealth("ready", "Приложение готово к записи", `Отвечает на ${DESKTOP_URL}`);
   } catch (error) {
     setHealth(
       "down",
       "Приложение не отвечает",
-      `${DEFAULT_STT_URL} — запустите Rechiv командой task run. ${getErrorMessage(error)}`,
+      `${DESKTOP_URL} — запустите Rechiv командой task run. ${getErrorMessage(error)}`,
     );
   }
 }
@@ -83,18 +83,30 @@ function emptyLlmFields(): HTMLInputElement[] {
   return llmFields.filter((input) => input.value.trim() === "");
 }
 
+function llmInput(): LlmSettingsInput {
+  return {
+    url: llmUrlInput.value.trim(),
+    model: llmModelInput.value.trim(),
+    apiKey: llmKeyInput.value.trim(),
+  };
+}
+
 function incompleteLlmFields(): HTMLInputElement[] {
   const empty = emptyLlmFields();
   return empty.length === llmFields.length ? [] : empty;
 }
 
 async function load(): Promise<void> {
-  const config = await getConfig();
-  applyAppearance(config);
-  llmUrlInput.value = config.llmUrl;
-  llmModelInput.value = config.llmModel;
-  llmKeyInput.value = config.llmApiKey;
+  const config = await applyDesktopTheme();
   setAppearanceControls(form, config);
+  try {
+    const llm = await api.getLlmSettings();
+    llmUrlInput.value = llm.url;
+    llmModelInput.value = llm.model;
+    llmKeyInput.value = llm.apiKey;
+  } catch (error) {
+    setStatus(llmStatus, `Настройки LLM недоступны: ${getErrorMessage(error)}`, "error");
+  }
 }
 
 form.addEventListener("submit", async (event) => {
@@ -108,19 +120,8 @@ form.addEventListener("submit", async (event) => {
   }
   markInvalid([]);
 
-  const llmUrl = llmUrlInput.value.trim();
-  if (llmUrl && !(await ensureLlmPermission(llmUrl))) {
-    setStatus(saveStatus, LLM_PERMISSION_DENIED, "error");
-    return;
-  }
-
   try {
-    await saveConfig({
-      llmUrl: llmUrlInput.value.trim(),
-      llmModel: llmModelInput.value.trim(),
-      llmApiKey: llmKeyInput.value.trim(),
-      ...readAppearanceControls(form),
-    });
+    await api.putLlmSettings(llmInput());
     applyAppearance(readAppearanceControls(form));
     setStatus(saveStatus, "Сохранено", "ok");
   } catch (error) {
@@ -138,19 +139,13 @@ checkLlmButton.addEventListener("click", async () => {
   }
   markInvalid([]);
 
-  if (!(await ensureLlmPermission(llmUrlInput.value.trim()))) {
-    setStatus(llmStatus, LLM_PERMISSION_DENIED, "error");
-    return;
-  }
   checkLlmButton.disabled = true;
   setStatus(llmStatus, "Проверяю…");
   try {
-    const result = await checkLlmAccess({
-      llmUrl: llmUrlInput.value.trim(),
-      llmModel: llmModelInput.value.trim(),
-      llmApiKey: llmKeyInput.value.trim(),
-    });
+    const result = await api.checkLlm(llmInput());
     setStatus(llmStatus, result.detail, result.state);
+  } catch (error) {
+    setStatus(llmStatus, getErrorMessage(error), "error");
   } finally {
     checkLlmButton.disabled = false;
   }
@@ -163,10 +158,9 @@ toggleKeyButton.addEventListener("click", () => {
   toggleKeyButton.setAttribute("aria-pressed", String(!revealed));
 });
 
-bindAppearanceControls(form);
+bindAppearanceControls(form, (patch) => void saveAppearance(patch));
 
 $("#btn-recheck").addEventListener("click", () => void checkHealth());
 
 watchThemeChanges();
-void applySavedTheme();
 void load().then(() => checkHealth());

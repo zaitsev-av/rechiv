@@ -38,21 +38,31 @@
       </div>
 
       <div class="workspace">
-        <div class="tabs" role="tablist" aria-label="Разделы встречи">
-          <button class="tab active" data-tab="transcript" role="tab">
-            <span class="tab-icon tab-icon-transcript" aria-hidden="true"></span>
-            Транскрипт
-          </button>
-          <button
-            class="tab disabled"
-            data-tab="summary"
-            id="tab-summary"
-            role="tab"
-            disabled
-          >
-            <span class="tab-icon tab-icon-summary" aria-hidden="true"></span>
-            Саммари
-          </button>
+        <div class="tabbar">
+          <div class="tabs" role="tablist" aria-label="Разделы встречи">
+            <button class="tab active" data-tab="transcript" role="tab">
+              <span class="tab-icon tab-icon-transcript" aria-hidden="true"></span>
+              Транскрипт
+            </button>
+            <button
+              class="tab disabled"
+              data-tab="summary"
+              id="tab-summary"
+              role="tab"
+              disabled
+            >
+              <span class="tab-icon tab-icon-summary" aria-hidden="true"></span>
+              Саммари
+              <span id="tab-summary-mark" class="tab-mark hidden"></span>
+            </button>
+          </div>
+          <div id="actions-transcript" class="tab-actions hidden">
+            <button id="btn-summary" class="btn btn-accent" type="button" disabled>
+              Сделать саммари
+            </button>
+            <button id="btn-copy" class="btn btn-ghost" type="button">Копировать текст</button>
+            <button id="btn-download" class="btn btn-ghost" type="button">Скачать JSON</button>
+          </div>
         </div>
 
         <div id="panel-transcript" class="tab-panel">
@@ -69,37 +79,58 @@
         </div>
 
         <div id="panel-summary" class="tab-panel hidden">
-          <article id="summary-content" class="summary-content">
-            <div id="summary-edited" class="summary-edited hidden"></div>
-            <div id="summary-toolbar" class="summary-toolbar hidden" role="toolbar" aria-label="Форматирование саммари"></div>
-            <div id="summary-editor"></div>
+          <section id="summary-empty" class="summary-empty">
+            <h2>Саммари ещё нет</h2>
+            <p id="summary-empty-text">
+              LLM соберёт итоги, решения и задачи по транскрипту. Со страницы можно уйти — Rechiv
+              доделает сам.
+            </p>
+            <button id="btn-summary-empty" class="btn btn-primary" type="button">
+              Сделать саммари
+            </button>
+          </section>
+
+          <article id="summary-content" class="summary-content hidden">
+            <header class="summary-head">
+              <div id="summary-meta" class="summary-meta">
+                <strong>Саммари</strong>
+                <span id="summary-info"></span>
+                <span id="summary-edited" class="summary-edited hidden"></span>
+              </div>
+              <div
+                id="summary-toolbar"
+                class="summary-toolbar hidden"
+                role="toolbar"
+                aria-label="Форматирование саммари"
+              ></div>
+              <div class="summary-tools">
+                <button id="btn-edit-summary" class="btn btn-secondary" type="button">
+                  Редактировать
+                </button>
+                <button id="btn-copy-summary" class="btn btn-ghost" type="button">Копировать</button>
+                <button id="btn-regenerate" class="btn btn-ghost" type="button">
+                  Перегенерировать
+                </button>
+                <button id="btn-cancel-summary" class="btn btn-ghost hidden" type="button">
+                  Отмена
+                </button>
+                <button id="btn-save-summary" class="btn btn-primary hidden" type="button">
+                  Сохранить
+                </button>
+              </div>
+            </header>
+            <div id="summary-generating" class="summary-note hidden" role="status">
+              <span class="summary-note-spinner" aria-hidden="true"></span>
+              Генерируется. Со страницы можно уйти — Rechiv доделает и сохранит.
+            </div>
+            <div id="summary-editor" class="summary-body" title="Двойной клик — редактировать"></div>
           </article>
         </div>
-
       </div>
 
       <button id="btn-top" class="scroll-top" type="button" title="Наверх" aria-label="Наверх">
         <span aria-hidden="true">↑</span>
       </button>
-
-      <footer id="footer-transcript" class="action-dock hidden">
-        <div class="action-dock-inner">
-          <button id="btn-summary" class="btn btn-primary" disabled>Сделать саммари</button>
-          <span class="action-divider"></span>
-          <button id="btn-download" class="btn btn-secondary">Скачать JSON</button>
-          <button id="btn-copy" class="btn btn-secondary">Копировать текст</button>
-        </div>
-      </footer>
-
-      <footer id="footer-summary" class="action-dock hidden">
-        <div class="action-dock-inner">
-          <button id="btn-regenerate" class="btn btn-primary">Перегенерировать</button>
-          <button id="btn-copy-summary" class="btn btn-secondary">Копировать саммари</button>
-          <button id="btn-edit-summary" class="btn btn-secondary">Редактировать</button>
-          <button id="btn-save-summary" class="btn btn-primary hidden">Сохранить</button>
-          <button id="btn-cancel-summary" class="btn btn-secondary hidden">Отмена</button>
-        </div>
-      </footer>
     </div>
     <script src="transcript.js" type="module"></script>
   </body>

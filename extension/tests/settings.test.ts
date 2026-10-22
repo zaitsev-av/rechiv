@@ -1,17 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getConfig, isLlmConfigured } from "../src/shared/config";
 import { chromeMock } from "./setup";
 
 const FILLED_LLM = {
-  llmUrl: "https://example.test/v1",
-  llmModel: "some-model",
-  llmApiKey: "token",
+  url: "https://example.test/v1",
+  model: "some-model",
+  apiKey: "token",
 };
 
-async function loadSettingsPage(
-  config: Record<string, unknown> = {},
-  health: Record<string, unknown> = { status: "ok", engine: { status: "ready" } },
-) {
+interface DesktopState {
+  health?: Record<string, unknown>;
+  llm?: { url: string; model: string; apiKey: string; configured: boolean };
+  check?: Record<string, unknown>;
+}
+
+let requests: { method: string; path: string; body?: unknown }[] = [];
+
+async function loadSettingsPage(desktop: DesktopState = {}) {
   document.body.innerHTML = `
     <div id="health" class="health">
       <p id="health-title"></p>
@@ -33,24 +37,48 @@ async function loadSettingsPage(
       <p id="save-status"></p>
     </form>
   `;
-  chromeMock.storage.local.get.mockImplementation(async (key) => {
-    if (key === "config") return { config };
-    return {};
-  });
-  globalThis.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve(health),
-  });
+  chromeMock.storage.local.get.mockImplementation(async () => ({}));
+  requests = [];
+  let llm = desktop.llm ?? { url: "", model: "", apiKey: "", configured: false };
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), "http://localhost").pathname;
+    const method = init?.method ?? "GET";
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    requests.push({ method, path, body });
+    if (path === "/health") {
+      return Response.json(desktop.health ?? { status: "ok", engine: { status: "ready" } });
+    }
+    if (path === "/settings/llm" && method === "PUT") {
+      llm = { ...body, configured: Boolean(body.url && body.model && body.apiKey) };
+      return Response.json(llm);
+    }
+    if (path === "/settings/llm") return Response.json(llm);
+    if (path === "/settings/llm/check") {
+      return Response.json(desktop.check ?? { state: "ok", detail: "Модель доступна" });
+    }
+    return Response.json({});
+  }) as typeof fetch;
   vi.resetModules();
   await import("../src/pages/settings");
   await new Promise((resolve) => setTimeout(resolve, 30));
 }
 
-function submit() {
+const field = (id: string) => document.getElementById(id) as HTMLInputElement;
+
+function fill(values: Partial<typeof FILLED_LLM>) {
+  if (values.url !== undefined) field("input-llm-url").value = values.url;
+  if (values.model !== undefined) field("input-llm-model").value = values.model;
+  if (values.apiKey !== undefined) field("input-llm-api-key").value = values.apiKey;
+}
+
+async function submit() {
   document
     .getElementById("settings-form")!
     .dispatchEvent(new Event("submit", { cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 10));
 }
+
+const llmWrites = () => requests.filter((r) => r.path === "/settings/llm" && r.method === "PUT");
 
 describe("settings page", () => {
   beforeEach(() => {
@@ -60,9 +88,17 @@ describe("settings page", () => {
   it("не подставляет адрес и модель LLM, когда их не задавали", async () => {
     await loadSettingsPage();
 
-    expect((document.getElementById("input-llm-url") as HTMLInputElement).value).toBe("");
-    expect((document.getElementById("input-llm-model") as HTMLInputElement).value).toBe("");
+    expect(field("input-llm-url").value).toBe("");
+    expect(field("input-llm-model").value).toBe("");
     expect(document.getElementById("input-stt-url")).toBeNull();
+  });
+
+  it("показывает настройку из desktop", async () => {
+    await loadSettingsPage({ llm: { ...FILLED_LLM, configured: true } });
+
+    expect(field("input-llm-url").value).toBe(FILLED_LLM.url);
+    expect(field("input-llm-model").value).toBe(FILLED_LLM.model);
+    expect(field("input-llm-api-key").value).toBe(FILLED_LLM.apiKey);
   });
 
   it("показывает готовность локального приложения", async () => {
@@ -73,7 +109,9 @@ describe("settings page", () => {
   });
 
   it("сообщает, что движок распознавания не поднялся", async () => {
-    await loadSettingsPage({}, { status: "ok", engine: { status: "error", error: "нет torch" } });
+    await loadSettingsPage({
+      health: { status: "ok", engine: { status: "error", error: "нет torch" } },
+    });
 
     expect(document.getElementById("health")!.className).toContain("warning");
     expect(document.getElementById("health-detail")!.textContent).toBe("нет torch");
@@ -81,71 +119,56 @@ describe("settings page", () => {
 
   it("не сохраняет наполовину заполненный LLM", async () => {
     await loadSettingsPage();
-    (document.getElementById("input-llm-url") as HTMLInputElement).value = FILLED_LLM.llmUrl;
+    fill({ url: FILLED_LLM.url });
 
-    submit();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await submit();
 
-    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    expect(llmWrites()).toHaveLength(0);
     expect(document.getElementById("save-status")!.className).toContain("error");
-    expect(document.getElementById("input-llm-model")!.className).toContain("invalid");
+    expect(field("input-llm-model").className).toContain("invalid");
   });
 
-  it("сохраняет, когда заполнены все три поля LLM", async () => {
+  it("сохраняет в desktop, когда заполнены все три поля", async () => {
     await loadSettingsPage();
-    (document.getElementById("input-llm-url") as HTMLInputElement).value = FILLED_LLM.llmUrl;
-    (document.getElementById("input-llm-model") as HTMLInputElement).value = FILLED_LLM.llmModel;
-    (document.getElementById("input-llm-api-key") as HTMLInputElement).value = FILLED_LLM.llmApiKey;
+    fill(FILLED_LLM);
 
-    submit();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await submit();
 
-    expect(chrome.storage.local.set).toHaveBeenCalledWith({
-      config: expect.objectContaining(FILLED_LLM),
-    });
+    expect(llmWrites()).toEqual([{ method: "PUT", path: "/settings/llm", body: FILLED_LLM }]);
     expect(document.getElementById("save-status")!.textContent).toBe("Сохранено");
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 
   it("проверяет подключение по тому, что сейчас в полях", async () => {
     await loadSettingsPage();
-    for (const [id, value] of Object.entries({
-      "input-llm-url": FILLED_LLM.llmUrl,
-      "input-llm-model": FILLED_LLM.llmModel,
-      "input-llm-api-key": FILLED_LLM.llmApiKey,
-    })) {
-      (document.getElementById(id) as HTMLInputElement).value = value;
-    }
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ data: [{ id: FILLED_LLM.llmModel }] }),
-    });
+    fill(FILLED_LLM);
 
     document.getElementById("btn-check-llm")!.click();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      `${FILLED_LLM.llmUrl}/models`,
-      expect.objectContaining({ headers: { Authorization: `Bearer ${FILLED_LLM.llmApiKey}` } }),
-    );
+    expect(requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/settings/llm/check",
+      body: FILLED_LLM,
+    });
     expect(document.getElementById("llm-status")!.className).toContain("ok");
-    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    expect(llmWrites()).toHaveLength(0);
   });
 
   it("не проверяет подключение с пустыми полями", async () => {
     await loadSettingsPage();
-    const fetchCalls = vi.mocked(globalThis.fetch).mock.calls.length;
+    const calls = requests.length;
 
     document.getElementById("btn-check-llm")!.click();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(vi.mocked(globalThis.fetch).mock.calls.length).toBe(fetchCalls);
+    expect(requests.length).toBe(calls);
     expect(document.getElementById("llm-status")!.className).toContain("error");
   });
 
   it("показывает и прячет токен", async () => {
-    await loadSettingsPage(FILLED_LLM);
-    const key = document.getElementById("input-llm-api-key") as HTMLInputElement;
+    await loadSettingsPage();
+    const key = field("input-llm-api-key");
     const toggle = document.getElementById("btn-toggle-key")!;
 
     toggle.click();
@@ -158,31 +181,12 @@ describe("settings page", () => {
   });
 
   it("сохраняет полностью очищенный LLM", async () => {
-    await loadSettingsPage(FILLED_LLM);
-    for (const id of ["input-llm-url", "input-llm-model", "input-llm-api-key"]) {
-      (document.getElementById(id) as HTMLInputElement).value = "";
-    }
+    await loadSettingsPage({ llm: { ...FILLED_LLM, configured: true } });
+    fill({ url: "", model: "", apiKey: "" });
 
-    submit();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await submit();
 
-    expect(chrome.storage.local.set).toHaveBeenCalledWith({
-      config: expect.objectContaining({ llmUrl: "", llmModel: "", llmApiKey: "" }),
-    });
-  });
-});
-
-describe("isLlmConfigured", () => {
-  it("требует адрес, модель и токен разом", async () => {
-    chromeMock.storage.local.get.mockResolvedValue({ config: {} });
-    expect(isLlmConfigured(await getConfig())).toBe(false);
-
-    chromeMock.storage.local.get.mockResolvedValue({
-      config: { llmUrl: "https://example.test/v1", llmModel: "m" },
-    });
-    expect(isLlmConfigured(await getConfig())).toBe(false);
-
-    chromeMock.storage.local.get.mockResolvedValue({ config: FILLED_LLM });
-    expect(isLlmConfigured(await getConfig())).toBe(true);
+    expect(llmWrites()[0].body).toEqual({ url: "", model: "", apiKey: "" });
+    expect(document.getElementById("save-status")!.textContent).toBe("Сохранено");
   });
 });

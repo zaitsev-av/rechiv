@@ -302,6 +302,63 @@ describe("TelemostPageAdapter", () => {
     ]);
   });
 
+  it("собирает VAD со всех страниц сетки одним событием", () => {
+    const now = vi.spyOn(performance, "now");
+    const adapter = new TelemostPageAdapter();
+    adapter.install();
+    const socket = openSignalingSocket();
+    adapter.startVadCapture(1_000);
+    const page = (id: string, vad: boolean) => ({ participant: { participantId: id }, vad });
+    const message = (first: boolean, next: boolean, screen = false) =>
+      JSON.stringify({
+        slotsConfig: {
+          slots: [{ selfView: {}, vad: false }, page(REMOTE_ID, first)],
+          nextSlots: [
+            { empty: {}, vad: false },
+            page(SECOND_ID, next),
+            { participantScreenSharingByMid: { participantId: REMOTE_ID, mid: "" }, vad: screen },
+          ],
+          prevSlots: [],
+          offset: 0,
+        },
+      });
+
+    now.mockReturnValue(1_500);
+    socket.receive(message(false, true));
+    now.mockReturnValue(2_000);
+    socket.receive(message(true, true));
+    now.mockReturnValue(2_500);
+    socket.receive(message(false, false, true));
+
+    expect(adapter.getVadTimeline().events).toEqual([
+      { at: 0, active: [] },
+      { at: 0.5, active: [SECOND_ID] },
+      { at: 1, active: [REMOTE_ID, SECOND_ID].sort() },
+      { at: 1.5, active: [] },
+    ]);
+  });
+
+  it("не называет поток, когда собеседники есть и на второй странице сетки", () => {
+    const adapter = new TelemostPageAdapter();
+    adapter.install();
+    const socket = openSignalingSocket();
+    socket.receive(describeMessage(REMOTE_ID, "Собеседник"));
+    adapter.noteRemoteTrack(REMOTE_STREAM, "audio_AA");
+    socket.receive(
+      JSON.stringify({
+        slotsConfig: {
+          slots: [
+            { selfView: {}, vad: false },
+            { participant: { participantId: REMOTE_ID }, vad: false },
+          ],
+          nextSlots: [{ participant: { participantId: SECOND_ID }, vad: true }],
+        },
+      }),
+    );
+
+    expect(adapter.getSpeakerMap()).toBeNull();
+  });
+
   it("does not duplicate unchanged VAD states", () => {
     const now = vi.spyOn(performance, "now");
     const adapter = new TelemostPageAdapter();

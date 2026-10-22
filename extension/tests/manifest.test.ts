@@ -7,15 +7,10 @@ describe("generated manifest", () => {
   it("derives permissions and both platform scripts from the registry", () => {
     const matches = platforms.flatMap(({ hosts }) => hosts.map((host) => `https://${host}/*`));
     const manifest = generateManifest(source, platforms);
-    expect(manifest.host_permissions).toEqual([
-      ...matches,
-      "http://localhost:9876/*",
-      "http://127.0.0.1:9876/*",
-    ]);
+    expect(manifest.host_permissions).toEqual([...matches, "http://rechiv.localhost:9876/*"]);
     expect(manifest.content_scripts[0].matches).toEqual(matches);
     expect(manifest.content_scripts[1].matches).toEqual(matches);
     expect(manifest.content_scripts[2]).toEqual(source.content_scripts[2]);
-    expect(manifest.optional_host_permissions).toEqual(source.optional_host_permissions);
     expect({ ...manifest, host_permissions: [], content_scripts: source.content_scripts }).toEqual(
       source,
     );

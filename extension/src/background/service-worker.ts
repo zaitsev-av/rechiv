@@ -1,15 +1,17 @@
-import { type HealthResult, SttApiClient } from "../shared/api-client";
-import { getConfig } from "../shared/config";
+import {
+  type CallCommand,
+  type CallPresence,
+  type HealthResult,
+  SttApiClient,
+} from "../shared/api-client";
+import { syncDesktopAppearance } from "../shared/appearance";
+import { DESKTOP_URL } from "../shared/config";
 import type { ContentMessage } from "../shared/messages";
-import { ALL_MATCHES, isCallPage } from "../shared/platform";
+import { ALL_MATCHES, isCallPage, platformForUrl } from "../shared/platform";
 import { RecordingStorage } from "../shared/storage";
 import type { RecordingState, SessionInfo, VadTimeline } from "../shared/types";
 import { getErrorMessage } from "../shared/utils";
-import {
-  type AutoProcessingResult,
-  autoProcessingKey,
-  processCompletedSession,
-} from "./auto-processing";
+import { CallChannel } from "./call-channel";
 
 const PREFIX = "[Rechiv:sw]";
 
@@ -19,6 +21,8 @@ export class SessionController {
   private _uploadToken: string | null = null;
   private _tabId: number | null = null;
   private _storage = new RecordingStorage();
+  /** Канал с desktop узнаёт о смене состояния сразу, а не при следующем опросе. */
+  onStateChange?: () => void;
 
   constructor(private _api: SttApiClient) {}
 
@@ -71,9 +75,28 @@ export class SessionController {
       this._tabId ?? undefined,
     );
     await this._updateBadge();
-    return session.uploadToken
-      ? { sessionId: session.sessionId, uploadToken: session.uploadToken }
-      : { sessionId: session.sessionId };
+    return {
+      sessionId: session.sessionId,
+      ...(session.uploadToken ? { uploadToken: session.uploadToken } : {}),
+      ...(session.livePanel ? { livePanel: true } : {}),
+    };
+  }
+
+  /** Захват во вкладке не начался: пустую сессию не оставляем висеть в записи. */
+  async abandonRecording() {
+    const sessionId = this._sessionId;
+    this._state = "idle";
+    this._sessionId = null;
+    this._uploadToken = null;
+    this._tabId = null;
+    await this._storage.clearActiveSession();
+    await this._updateBadge();
+    if (!sessionId) return;
+    try {
+      await this._api.deleteSession(sessionId);
+    } catch (err) {
+      console.error(PREFIX, "could not delete abandoned session:", err);
+    }
   }
 
   async stopRecording(vadTimeline?: VadTimeline) {
@@ -177,6 +200,7 @@ export class SessionController {
   }
 
   private async _updateBadge() {
+    this.onStateChange?.();
     const badges: Record<string, { text: string; color: string }> = {
       idle: { text: "", color: "#666" },
       detecting: { text: "?", color: "#FFA500" },
@@ -251,7 +275,43 @@ export async function rememberCallFrame(sender: chrome.runtime.MessageSender): P
   console.log(PREFIX, "call frame for tab", tabId, "is", sender.frameId, sender.url);
 }
 
+const JOINED_TABS_KEY = "joinedTabs";
+
+/** Вход привязан к встрече: другая ссылка в той же вкладке — новый созвон, параметры не важны. */
+function meetingKey(url: string): string {
+  try {
+    const { origin, pathname } = new URL(url);
+    return origin + pathname;
+  } catch {
+    return url;
+  }
+}
+
+async function readJoined(): Promise<Record<number, string>> {
+  try {
+    const stored = await chrome.storage.session.get(JOINED_TABS_KEY);
+    return (stored?.[JOINED_TABS_KEY] as Record<number, string> | undefined) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function markJoined(tabId: number, url: string): Promise<void> {
+  const joined = await readJoined();
+  const key = meetingKey(url);
+  if (joined[tabId] === key) return;
+  await chrome.storage.session.set({ [JOINED_TABS_KEY]: { ...joined, [tabId]: key } });
+}
+
+async function forgetJoined(tabId: number): Promise<void> {
+  const joined = await readJoined();
+  if (!(tabId in joined)) return;
+  delete joined[tabId];
+  await chrome.storage.session.set({ [JOINED_TABS_KEY]: joined });
+}
+
 async function forgetCallFrame(tabId: number): Promise<void> {
+  await forgetJoined(tabId);
   const frames = await readCallFrames();
   if (!(tabId in frames)) return;
   delete frames[tabId];
@@ -298,19 +358,14 @@ async function processPendingSessions(api: SttApiClient): Promise<void> {
   for (const sessionId of pending) {
     try {
       const session = await api.getSession(sessionId);
-      if (session.status === "completed" || session.status === "error") {
-        let result: AutoProcessingResult = {};
-        if (session.status === "completed") {
-          try {
-            result = await processCompletedSession(api, session);
-          } catch (error) {
-            console.error(PREFIX, "Автообработка не удалась:", error);
-            result.summaryFailed = true;
-          }
-        }
+      // Саммари и тему делает desktop; уведомляем, когда он закончит.
+      if (
+        (session.status === "completed" && !session.autoProcessing?.pending) ||
+        session.status === "error"
+      ) {
         const current = await storage.getPendingSessions();
         await storage.setPendingSessions(current.filter((id) => id !== sessionId));
-        notifyTranscriptReady(session, result);
+        notifyTranscriptReady(session);
       } else {
         stillWaiting.push(sessionId);
       }
@@ -322,14 +377,12 @@ async function processPendingSessions(api: SttApiClient): Promise<void> {
   const added = (await storage.getPendingSessions()).filter((id) => !pending.includes(id));
   stillWaiting.push(...added);
   await storage.setPendingSessions(stillWaiting);
-  for (const id of pending) {
-    if (!stillWaiting.includes(id)) await chrome.storage.local.remove(autoProcessingKey(id));
-  }
   if (stillWaiting.length === 0) await chrome.alarms.clear(READY_ALARM);
 }
 
-function notifyTranscriptReady(session: SessionInfo, result: AutoProcessingResult = {}): void {
+function notifyTranscriptReady(session: SessionInfo): void {
   const failed = session.status === "error";
+  const result = session.autoProcessing ?? {};
   chrome.notifications.create(`transcript-ready-${session.sessionId}`, {
     type: "basic",
     iconUrl: chrome.runtime.getURL("icons/icon-default-128.png"),
@@ -352,25 +405,27 @@ function notifyTranscriptReady(session: SessionInfo, result: AutoProcessingResul
 let controller: SessionController;
 
 async function bootstrap() {
-  const config = await getConfig();
-  const api = new SttApiClient(config.sttServiceUrl);
+  const api = new SttApiClient(DESKTOP_URL);
   controller = new SessionController(api);
+  controller.onStateChange = () => callChannel.refresh();
   void api.isAvailable();
+  void syncDesktopAppearance();
   await controller.restoreFromStorage();
+  void callChannel.ensure();
 }
 
 // Alarm может разбудить worker раньше bootstrap, поэтому клиент создаём заново.
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== READY_ALARM) return;
   void (async () => {
-    const config = await getConfig();
-    await checkPendingSessions(new SttApiClient(config.sttServiceUrl));
+    await checkPendingSessions(new SttApiClient(DESKTOP_URL));
   })();
 });
 
 chrome.runtime.onMessage.addListener((msg: ContentMessage, sender, sendResponse) => {
   (async () => {
     try {
+      await booted;
       switch (msg.action) {
         case "getState":
           sendResponse({ state: controller.state, sessionId: controller.sessionId });
@@ -381,27 +436,14 @@ chrome.runtime.onMessage.addListener((msg: ContentMessage, sender, sendResponse)
           sendResponse({ ok: true });
           break;
         case "startRecording": {
-          const callTab = await findCallTab();
-          console.log(PREFIX, "startRecording, callTab:", callTab?.id, callTab?.url);
-          const result = await controller.startRecording(msg.callUrl, callTab?.id);
-          console.log(PREFIX, "session created:", result.sessionId);
-          if (callTab?.id) {
-            try {
-              await sendToCallFrame(callTab.id, {
-                action: "startCapture",
-                sessionId: result.sessionId,
-                ...(result.uploadToken ? { uploadToken: result.uploadToken } : {}),
-              });
-              console.log(PREFIX, "startCapture sent to tab", callTab.id);
-            } catch (err) {
-              console.error(PREFIX, "failed to send startCapture to tab:", err);
-            }
-          } else {
-            console.warn(PREFIX, "no call tab found!");
-          }
+          const result = await startRecordingInTab(msg.callUrl, await findCallTab());
           sendResponse({ ok: true, sessionId: result.sessionId });
           break;
         }
+        case "keepAlive":
+          void callChannel.ensure();
+          sendResponse({ ok: true });
+          break;
         case "stopRecording": {
           const stoppedSessionId = controller.sessionId;
           const stopTab = await findCallTab();
@@ -413,35 +455,10 @@ chrome.runtime.onMessage.addListener((msg: ContentMessage, sender, sendResponse)
           await controller.stopRecording();
           sendResponse({ ok: true });
           break;
-        case "showLiveTranscript": {
-          const callTab = await findCallTab();
-          const candidates = [...new Set([controller.tabId, callTab?.id])].filter(
-            (id): id is number => typeof id === "number",
-          );
-          if (candidates.length === 0) {
-            throw new Error("Вкладка звонка не найдена");
-          }
-          let delivered = false;
-          for (const tabId of candidates) {
-            try {
-              await sendToCallFrame(tabId, {
-                action: "showLiveOverlay",
-                sessionId: msg.sessionId,
-              });
-              delivered = true;
-              break;
-            } catch {
-              // Слушателя нет — пробуем следующую вкладку.
-            }
-          }
-          if (!delivered) {
-            // После обновления расширения content script появится только после
-            // перезагрузки вкладки; разрешения scripting нет.
-            throw new Error("Обновите страницу созвона (F5) — расширение переустановлено");
-          }
+        case "showLiveTranscript":
+          await showLiveOverlay(msg.sessionId);
           sendResponse({ ok: true });
           break;
-        }
         case "getLiveTranscript": {
           const live = await controller.api.getLiveTranscript(msg.sessionId);
           sendResponse({ ok: true, live });
@@ -527,12 +544,19 @@ chrome.runtime.onMessage.addListener((msg: ContentMessage, sender, sendResponse)
           break;
         // Только удалённый трек: микрофон оболочка открывает и при проверке устройств.
         case "trackAdded":
-          if (msg.kind === "remote") await rememberCallFrame(sender);
+          if (msg.kind === "remote") {
+            await rememberCallFrame(sender);
+            if (typeof sender.tab?.id === "number" && sender.tab.url) {
+              await markJoined(sender.tab.id, sender.tab.url);
+            }
+            callChannel.refresh();
+          }
           sendResponse({ ok: true });
           break;
         case "webrtcDetected":
           await rememberCallFrame(sender);
           controller.onWebrtcDetected(msg.url);
+          callChannel.refresh();
           sendResponse({ ok: true });
           break;
         default:
@@ -546,11 +570,14 @@ chrome.runtime.onMessage.addListener((msg: ContentMessage, sender, sendResponse)
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void forgetCallFrame(tabId);
+  void forgetCallFrame(tabId).then(() => {
+    if (callChannel.running) callChannel.refresh();
+  });
   if (controller?.tabId === tabId) void controller.onTabClosed();
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (changeInfo.url && callChannel.running) callChannel.refresh();
   if (
     controller?.tabId === tabId &&
     controller.state === "recording" &&
@@ -561,6 +588,148 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
     // В SPA content script ещё жив и сам догрузит хвост.
     await stopActiveRecording(tabId);
   }
+});
+
+async function startRecordingInTab(
+  callUrl: string,
+  callTab: chrome.tabs.Tab | undefined,
+): Promise<{ sessionId: string; uploadToken?: string }> {
+  console.log(PREFIX, "startRecording, callTab:", callTab?.id, callTab?.url);
+  const { livePanel, ...result } = await controller.startRecording(callUrl, callTab?.id);
+  console.log(PREFIX, "session created:", result.sessionId);
+  if (callTab?.id) {
+    try {
+      await sendToCallFrame(callTab.id, {
+        action: "startCapture",
+        sessionId: result.sessionId,
+        ...(result.uploadToken ? { uploadToken: result.uploadToken } : {}),
+      });
+      console.log(PREFIX, "startCapture sent to tab", callTab.id);
+    } catch (err) {
+      console.error(PREFIX, "failed to send startCapture to tab:", err);
+      // После обновления расширения старый скрипт во вкладке отрезан, а разрешения scripting нет.
+      await controller.abandonRecording();
+      throw new Error("Обновите страницу созвона (F5) — расширение обновилось");
+    }
+  } else {
+    console.warn(PREFIX, "no call tab found!");
+  }
+  if (livePanel) {
+    try {
+      await showLiveOverlay(result.sessionId);
+    } catch (err) {
+      console.warn(PREFIX, "live panel from folder setting failed:", err);
+    }
+  }
+  return result;
+}
+
+async function showLiveOverlay(sessionId: string): Promise<void> {
+  const callTab = await findCallTab();
+  const candidates = [...new Set([controller.tabId, callTab?.id])].filter(
+    (id): id is number => typeof id === "number",
+  );
+  if (candidates.length === 0) {
+    throw new Error("Вкладка звонка не найдена");
+  }
+  for (const tabId of candidates) {
+    try {
+      // Панель — в основной странице: кадр звонка (у Телемоста — iframe) может быть не тем, что видно.
+      await chrome.tabs.sendMessage(
+        tabId,
+        { action: "showLiveOverlay", sessionId },
+        { frameId: 0 },
+      );
+      return;
+    } catch {
+      // Слушателя нет — пробуем следующую вкладку.
+    }
+  }
+  // После обновления расширения content script появится только после
+  // перезагрузки вкладки; разрешения scripting нет.
+  throw new Error("Обновите страницу созвона (F5) — расширение переустановлено");
+}
+
+/** Вкладка, о которой знает канал: записываемая или та, где замечен звонок. */
+async function currentCallTab(): Promise<chrome.tabs.Tab | undefined> {
+  if (controller.tabId !== null) {
+    try {
+      return await chrome.tabs.get(controller.tabId);
+    } catch {
+      // Вкладку закрыли — ищем среди замеченных.
+    }
+  }
+  for (const id of Object.keys(await readCallFrames())) {
+    try {
+      const tab = await chrome.tabs.get(Number(id));
+      if (tab.url && isCallPage(tab.url)) return tab;
+    } catch {
+      // Закрытую вкладку забудет onRemoved.
+    }
+  }
+  return undefined;
+}
+
+export async function describeCall(): Promise<CallPresence | null> {
+  await booted;
+  const tab = await currentCallTab();
+  if (!tab?.url) return null;
+  const recording = controller.state === "recording" || controller.state === "suspended";
+  // markProcessing уже сбросил состояние, но сессия ещё ждёт хвост от вкладки.
+  const stopping = !recording && controller.sessionId !== null;
+  const joined = typeof tab.id === "number" && (await readJoined())[tab.id] === meetingKey(tab.url);
+  return {
+    platform: platformForUrl(tab.url)?.name ?? "",
+    url: tab.url,
+    title: tab.title ?? "",
+    recording,
+    ...(joined ? { joined } : {}),
+    ...(stopping ? { stopping } : {}),
+    ...((recording || stopping) && controller.sessionId ? { sessionId: controller.sessionId } : {}),
+  };
+}
+
+export async function handleCallCommand(command: CallCommand, auto = false): Promise<void> {
+  await booted;
+  console.log(PREFIX, "command from desktop:", command, auto ? "(auto)" : "");
+  if (command === "live") {
+    if (controller.sessionId) await showLiveOverlay(controller.sessionId);
+    return;
+  }
+  if (command === "stop") {
+    if (controller.state === "recording" || controller.state === "suspended") {
+      await stopActiveRecording(controller.tabId ?? undefined);
+    }
+    return;
+  }
+  if (controller.state === "recording" || controller.state === "suspended") return;
+  const tab = await currentCallTab();
+  if (!tab?.url) return;
+  try {
+    await startRecordingInTab(tab.url, tab);
+    if (auto) {
+      chrome.notifications.create("auto-recording", {
+        type: "basic",
+        iconUrl: chrome.runtime.getURL("icons/icon-recording-128.png"),
+        title: "Запись началась автоматически",
+        message: "Так настроена папка этого созвона. Остановить — в попапе или в трее.",
+      });
+    }
+  } catch (err) {
+    chrome.notifications.create("tray-start-failed", {
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icons/icon-default-128.png"),
+      title: "Не удалось начать запись",
+      message: getErrorMessage(err),
+    });
+    throw err;
+  }
+}
+
+const callChannel = new CallChannel({
+  api: () => controller.api,
+  describe: describeCall,
+  onCommand: handleCallCommand,
 });
 
 /** Штатная остановка: вкладка догружает хвост и сама присылает doFinishSession. */
@@ -589,6 +758,7 @@ async function stopActiveRecording(tabId: number | undefined): Promise<void> {
 }
 
 chrome.notifications.onClicked.addListener(async (notifId) => {
+  await booted;
   if (notifId.startsWith("suspended-")) {
     await controller.stopRecording();
     return;
@@ -619,4 +789,5 @@ chrome.notifications.onClicked.addListener(async (notifId) => {
   }
 });
 
-bootstrap();
+// Сообщение, разбудившее worker, приходит раньше, чем bootstrap создаст controller.
+const booted = bootstrap();

@@ -27,6 +27,7 @@ export type ContentMessage =
   | { action: "chunkReady"; speakerId: string; chunkIndex: number; timestamp: number }
   | { action: "getState" }
   | { action: "announcePresence" }
+  | { action: "keepAlive" }
   | { action: "startRecording"; callUrl: string }
   | { action: "stopRecording" }
   | { action: "continueRecording" }

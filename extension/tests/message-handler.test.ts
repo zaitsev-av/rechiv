@@ -10,7 +10,7 @@ describe("service worker message handler", () => {
     vi.resetModules();
 
     chromeMock.storage.local.get.mockImplementation(async (key) => {
-      if (key === "config") return { config: { sttServiceUrl: "http://localhost:9876" } };
+      if (key === "config") return { config: {} };
       return {};
     });
 
@@ -181,7 +181,7 @@ describe("service worker message handler", () => {
 
     expect(resp).toEqual({ ok: true });
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:9876/sessions/test-123/speakers",
+      "http://rechiv.localhost:9876/sessions/test-123/speakers",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ speakerId: "local", name: "Олег Ветров" }),

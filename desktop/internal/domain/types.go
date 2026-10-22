@@ -35,6 +35,21 @@ type Session struct {
 	Error              string                  `json:"error,omitempty"`
 	UploadToken        string                  `json:"uploadToken"`
 	NextChunkBySpeaker map[string]int          `json:"nextChunkBySpeaker"`
+	AutoProcessing     *AutoProcessing         `json:"autoProcessing,omitempty"`
+	SummaryJob         *SummaryJob             `json:"summaryJob,omitempty"`
+}
+
+// SummaryJob — саммари по кнопке: идёт в desktop и не зависит от открытой страницы.
+type SummaryJob struct {
+	Running bool   `json:"running,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type AutoProcessing struct {
+	Pending       bool `json:"pending,omitempty"`
+	SummaryReady  bool `json:"summaryReady,omitempty"`
+	SummaryFailed bool `json:"summaryFailed,omitempty"`
+	TopicFailed   bool `json:"topicFailed,omitempty"`
 }
 
 type Segment struct {

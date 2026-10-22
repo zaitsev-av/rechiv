@@ -1,19 +1,16 @@
 import { createPageSttApiClient, type SttApiClient } from "@shared/api-client";
-import { getConfig, isLlmConfigured } from "@shared/config";
+import { DESKTOP_URL } from "@shared/config";
 import { startInlineEdit } from "@shared/inline-edit";
-import { generateConfiguredSummary } from "@shared/llm-client";
-import { ensureLlmPermission, LLM_PERMISSION_DENIED } from "@shared/llm-permission";
 import { setupScrollTop } from "@shared/scroll-top";
 import { speakerInitials } from "@shared/speaker-initials";
-import { applyAppearance, watchThemeChanges } from "@shared/theme";
-import type { LiveTranscriptResult, SummaryResult, TranscriptResult } from "@shared/types";
-import {
-  dropLegacyTitle,
-  formatDateTime,
-  getErrorMessage,
-  getLegacyTitles,
-  plural,
-} from "@shared/utils";
+import { applyDesktopTheme, watchThemeChanges } from "@shared/theme";
+import type {
+  LiveTranscriptResult,
+  SummaryJob,
+  SummaryResult,
+  TranscriptResult,
+} from "@shared/types";
+import { formatDateTime, getErrorMessage, plural } from "@shared/utils";
 import { createSummaryEditor, type SummaryCommand, type SummaryEditor } from "./summary-editor";
 
 let apiClient: SttApiClient;
@@ -28,19 +25,18 @@ let summaryGenerating = false;
 let summaryBaseline = "";
 let transcriptIsFinal = false;
 let llmConfigured = false;
-let llmUrl = "";
 let livePollTimer: ReturnType<typeof setInterval> | null = null;
 let finalFeaturesInitialized = false;
 const hiddenSpeakers = new Set<string>();
 const speakerTones = new Map<string, number>();
 const LIVE_POLL_INTERVAL_MS = 2000;
+const SUMMARY_POLL_INTERVAL_MS = 2000;
+let summaryJobTimer: ReturnType<typeof setInterval> | null = null;
 
 async function init() {
-  const config = await getConfig();
-  applyAppearance(config);
-  llmConfigured = isLlmConfigured(config);
-  llmUrl = config.llmUrl;
-  apiClient = createPageSttApiClient(config.sttServiceUrl);
+  await applyDesktopTheme();
+  apiClient = createPageSttApiClient(DESKTOP_URL);
+  await refreshLlmConfigured();
   sessionId = new URLSearchParams(location.search).get("sessionId") ?? "";
   if (!sessionId) {
     document.getElementById("title")!.textContent = "Сессия не найдена";
@@ -59,38 +55,28 @@ async function init() {
 }
 
 function updateSummaryButton(configured: boolean) {
-  const btn = document.getElementById("btn-summary") as HTMLButtonElement;
-  if (!transcriptIsFinal) {
-    btn.disabled = true;
-    btn.title = "Саммари станет доступно после завершения записи";
-  } else if (!configured) {
-    btn.disabled = true;
-    btn.title = "Укажите адрес, модель и токен LLM на странице настроек";
-  } else {
-    btn.disabled = false;
-    btn.title = "";
+  const tab = document.getElementById("tab-summary") as HTMLButtonElement;
+  tab.disabled = !transcriptIsFinal;
+  tab.classList.toggle("disabled", !transcriptIsFinal);
+  tab.title = transcriptIsFinal ? "" : "Саммари станет доступно после завершения записи";
+  let title = "";
+  if (!transcriptIsFinal) title = "Саммари станет доступно после завершения записи";
+  else if (!configured) title = "Укажите адрес, модель и токен LLM на странице настроек";
+  for (const id of ["btn-summary", "btn-summary-empty", "btn-regenerate"]) {
+    const btn = document.getElementById(id) as HTMLButtonElement;
+    btn.disabled = summaryGenerating || title !== "";
+    btn.title = title;
   }
 }
 
 /** Название живёт в сессии; из chrome.storage поднимаем только старые записи. */
 async function loadSessionTitle(): Promise<string> {
-  let stored = "";
   try {
-    stored = (await apiClient.getSession(sessionId)).title ?? "";
+    return (await apiClient.getSession(sessionId)).title ?? "";
   } catch {
     // Сервис недоступен.
+    return "";
   }
-  if (stored) return stored;
-
-  const legacy = (await getLegacyTitles())[sessionId];
-  if (!legacy) return "";
-  try {
-    await apiClient.updateTitle(sessionId, legacy);
-    await dropLegacyTitle(sessionId);
-  } catch {
-    // Повторим при следующем открытии.
-  }
-  return legacy;
 }
 
 async function refreshLiveTranscript() {
@@ -148,6 +134,17 @@ async function initializeFinalFeatures() {
   if (finalFeaturesInitialized) return;
   finalFeaturesInitialized = true;
   await loadSummary();
+  try {
+    const job = (await apiClient.getSession(sessionId)).summaryJob;
+    if (job?.running) {
+      setSummaryGenerating(true);
+      watchSummaryJob();
+    } else if (job?.error && !summaryData) {
+      showBanner(`Саммари не получилось: ${job.error}`);
+    }
+  } catch {
+    // Сервис недоступен.
+  }
 }
 
 function updateLiveIndicator(live: LiveTranscriptResult, isFinal: boolean) {
@@ -185,20 +182,38 @@ function setLiveIndicator(state: "recording" | "processing" | "reconnecting", te
 async function loadSummary() {
   try {
     summaryData = await apiClient.getSummary(sessionId);
-    if (summaryData) {
-      enableSummaryTab();
-      renderSummary();
-    }
   } catch {
     // Саммари ещё нет.
   }
+  renderSummary();
 }
 
-function enableSummaryTab() {
-  const tab = document.getElementById("tab-summary") as HTMLButtonElement;
-  tab.disabled = false;
-  tab.classList.remove("disabled");
-  document.getElementById("btn-summary")!.style.display = "none";
+/** Пустое состояние, ход генерации и отметка на вкладке — из summaryData и summaryGenerating. */
+function renderSummaryState() {
+  const hasSummary = summaryData !== null;
+  document.getElementById("summary-empty")!.classList.toggle("hidden", hasSummary);
+  document.getElementById("summary-content")!.classList.toggle("hidden", !hasSummary);
+  document.getElementById("summary-generating")!.classList.toggle("hidden", !summaryGenerating);
+  document.getElementById("summary-empty-text")!.textContent = summaryGenerating
+    ? "Генерируется. Со страницы можно уйти — Rechiv доделает и сохранит."
+    : "LLM соберёт итоги, решения и задачи по транскрипту. Со страницы можно уйти — Rechiv доделает сам.";
+  document.getElementById("btn-summary")!.classList.toggle("hidden", hasSummary);
+
+  const mark = document.getElementById("tab-summary-mark")!;
+  mark.replaceChildren();
+  mark.classList.toggle("hidden", hasSummary && !summaryGenerating);
+  if (summaryGenerating) {
+    const spinner = document.createElement("span");
+    spinner.className = "tab-mark-spinner";
+    mark.title = "Генерируется";
+    mark.append(spinner);
+  } else if (!hasSummary) {
+    const empty = document.createElement("span");
+    empty.className = "tab-mark-empty";
+    empty.textContent = "нет";
+    mark.title = "";
+    mark.append(empty);
+  }
 }
 
 function switchTab(tabName: string) {
@@ -208,12 +223,13 @@ function switchTab(tabName: string) {
   for (const panel of ["transcript", "summary"]) {
     document.getElementById(`panel-${panel}`)!.classList.toggle("hidden", panel !== tabName);
   }
-  for (const footer of ["transcript", "summary"]) {
-    document.getElementById(`footer-${footer}`)!.classList.toggle("hidden", footer !== tabName);
-  }
+  document
+    .getElementById("actions-transcript")!
+    .classList.toggle("hidden", tabName !== "transcript");
 }
 
 function renderSummary() {
+  renderSummaryState();
   if (!summaryData) return;
   if (!summaryEditor) {
     summaryEditor = createSummaryEditor(
@@ -227,10 +243,17 @@ function renderSummary() {
   edited.classList.toggle("hidden", !summaryData.editedAt);
   if (summaryData.editedAt) {
     const { date, time } = formatDateTime(new Date(summaryData.editedAt));
-    edited.textContent = `Отредактировано вручную · ${date} ${time}`;
+    edited.textContent = `изменено вручную · ${date} ${time}`;
   } else {
     edited.textContent = "";
   }
+  const info: string[] = [];
+  if (summaryData.model) info.push(summaryData.model);
+  if (summaryData.createdAt) {
+    const { date, time } = formatDateTime(new Date(summaryData.createdAt));
+    info.push(`${date} ${time}`);
+  }
+  document.getElementById("summary-info")!.textContent = info.join(" · ");
   updateSummaryEditing();
 }
 
@@ -242,10 +265,9 @@ function updateSummaryEditing() {
   document.getElementById("summary-content")!.classList.toggle("editing", summaryEditing);
   document.getElementById("summary-toolbar")!.classList.toggle("hidden", !summaryEditing);
   for (const id of ["btn-regenerate", "btn-copy-summary", "btn-edit-summary"]) {
-    const btn = document.getElementById(id) as HTMLButtonElement;
-    btn.classList.toggle("hidden", summaryEditing);
-    btn.disabled = summaryGenerating;
+    document.getElementById(id)!.classList.toggle("hidden", summaryEditing);
   }
+  (document.getElementById("btn-edit-summary") as HTMLButtonElement).disabled = summaryGenerating;
   for (const id of ["btn-save-summary", "btn-cancel-summary"]) {
     const btn = document.getElementById(id) as HTMLButtonElement;
     btn.classList.toggle("hidden", !summaryEditing);
@@ -380,55 +402,79 @@ function hideBanner(): void {
   document.getElementById("banner")?.classList.add("hidden");
 }
 
-async function handleGenerateSummary(e: Event) {
-  const btn = e.currentTarget as HTMLButtonElement;
+async function handleGenerateSummary() {
   if (summaryEditing || summaryGenerating || !transcriptIsFinal) return;
-  if (!(await ensureLlmPermission(llmUrl))) {
-    showBanner(LLM_PERMISSION_DENIED);
-    return;
-  }
   if (
     summaryData?.editedAt &&
     !confirm("Саммари отредактировано вручную. Перегенерировать и потерять правки?")
   )
     return;
-  summaryGenerating = true;
-  updateSummaryEditing();
-  const originalText = btn.textContent!;
-  btn.textContent = "Генерация...";
-  btn.classList.add("btn-spinner");
-  btn.disabled = true;
-
+  setSummaryGenerating(true);
   try {
-    const config = await getConfig();
-    summaryData = await generateConfiguredSummary(transcript, config);
-
-    enableSummaryTab();
-    renderSummary();
-    switchTab("summary");
-
-    try {
-      await apiClient.putSummary(sessionId, summaryData);
-    } catch {
-      showBanner("Саммари создано, но не удалось сохранить на сервере");
-    }
+    await apiClient.generateSummary(sessionId);
+    watchSummaryJob();
   } catch (err: unknown) {
+    setSummaryGenerating(false);
     showBanner(getErrorMessage(err));
-  } finally {
-    summaryGenerating = false;
-    updateSummaryEditing();
-    btn.textContent = originalText;
-    btn.classList.remove("btn-spinner");
-    btn.disabled = false;
-    const config = await getConfig();
-    llmConfigured = isLlmConfigured(config);
-    llmUrl = config.llmUrl;
+    await refreshLlmConfigured();
     updateSummaryButton(llmConfigured);
   }
 }
 
+function setSummaryGenerating(on: boolean) {
+  summaryGenerating = on;
+  updateSummaryEditing();
+  for (const [id, idle] of [
+    ["btn-summary", "Сделать саммари"],
+    ["btn-summary-empty", "Сделать саммари"],
+    ["btn-regenerate", "Перегенерировать"],
+  ]) {
+    const btn = document.getElementById(id) as HTMLButtonElement;
+    btn.textContent = on ? "Генерация…" : idle;
+    btn.classList.toggle("btn-spinner", on);
+  }
+  updateSummaryButton(llmConfigured);
+  renderSummaryState();
+}
+
+/** Саммари делает desktop: со страницы можно уйти, при возврате она подхватит ход. */
+function watchSummaryJob() {
+  if (summaryJobTimer !== null) return;
+  summaryJobTimer = setInterval(() => void checkSummaryJob(), SUMMARY_POLL_INTERVAL_MS);
+  void checkSummaryJob();
+}
+
+async function checkSummaryJob() {
+  let job: SummaryJob | undefined;
+  try {
+    job = (await apiClient.getSession(sessionId)).summaryJob;
+  } catch {
+    return;
+  }
+  if (job?.running) return;
+  if (summaryJobTimer !== null) clearInterval(summaryJobTimer);
+  summaryJobTimer = null;
+  setSummaryGenerating(false);
+  if (job?.error) {
+    showBanner(`Саммари не получилось: ${job.error}`);
+    return;
+  }
+  await loadSummary();
+  if (summaryData) switchTab("summary");
+}
+
+async function refreshLlmConfigured(): Promise<void> {
+  try {
+    llmConfigured = (await apiClient.getLlmSettings()).configured;
+  } catch {
+    llmConfigured = false;
+  }
+}
+
 function render() {
-  document.getElementById("footer-transcript")!.classList.remove("hidden");
+  if (!document.getElementById("panel-transcript")!.classList.contains("hidden")) {
+    document.getElementById("actions-transcript")!.classList.remove("hidden");
+  }
   const titleEl = document.getElementById("title")!;
   const displayTitle = sessionTitle || `Звонок ${transcript.date}`;
   // Во время записи render() зовётся каждые две секунды и стёр бы набранное.
@@ -591,30 +637,41 @@ function renderSegments() {
       `${seg.error ? " error" : ""}${transcriptIsFinal ? "" : " live-segment"}`;
     div.dataset.speakerId = seg.speakerId;
 
-    const timeEl = document.createElement("div");
-    timeEl.className = "segment-time";
-    timeEl.textContent = seg.start;
-    timeEl.title = `${seg.start} – ${seg.end}`;
+    const avatarEl = document.createElement("span");
+    avatarEl.className = "segment-avatar";
+    avatarEl.setAttribute("aria-hidden", "true");
+    avatarEl.textContent = speakerInitials(seg.speaker, seg.speakerId);
 
-    const speakerEl = document.createElement("div");
+    const speakerEl = document.createElement("span");
     speakerEl.className = "segment-speaker";
     speakerEl.textContent = seg.speaker;
-    speakerEl.dataset.initials = speakerInitials(seg.speaker, seg.speakerId);
     speakerEl.title = "Нажмите, чтобы переименовать участника";
     speakerEl.addEventListener(
       "click",
       () => void renameSpeaker(speakerEl, seg.speakerId, seg.speaker),
     );
 
+    const timeEl = document.createElement("time");
+    timeEl.className = "segment-time";
+    timeEl.textContent = shortTime(seg.start);
+    timeEl.title = `${seg.start} – ${seg.end}`;
+
+    const headEl = document.createElement("div");
+    headEl.className = "segment-head";
+    headEl.append(speakerEl, timeEl);
+
     const textEl = document.createElement("div");
     textEl.className = "segment-text";
     textEl.textContent = seg.text || "Не удалось распознать фрагмент";
 
-    div.appendChild(timeEl);
-    div.appendChild(speakerEl);
-    div.appendChild(textEl);
+    div.append(avatarEl, headEl, textEl);
     container.appendChild(div);
   }
+}
+
+/** Без часов, пока созвон их не набрал: 00:01:05 → 01:05. */
+function shortTime(value: string): string {
+  return /^00:\d\d:\d\d$/.test(value) ? value.slice(3) : value;
 }
 
 function getSpeakerTone(speakerId: string): number {
@@ -644,16 +701,27 @@ for (const tab of document.querySelectorAll(".tab")) {
   });
 }
 
-document.getElementById("btn-summary")!.addEventListener("click", handleGenerateSummary);
+document.getElementById("btn-summary")!.addEventListener("click", () => {
+  switchTab("summary");
+  void handleGenerateSummary();
+});
 
-document.getElementById("btn-regenerate")!.addEventListener("click", handleGenerateSummary);
+document
+  .getElementById("btn-summary-empty")!
+  .addEventListener("click", () => void handleGenerateSummary());
+
+document.getElementById("summary-editor")!.addEventListener("dblclick", startSummaryEditing);
+
+document
+  .getElementById("btn-regenerate")!
+  .addEventListener("click", () => void handleGenerateSummary());
 
 document.getElementById("btn-copy-summary")!.addEventListener("click", () => {
   if (!summaryData) return;
   navigator.clipboard.writeText(summaryData.content);
   const btn = document.getElementById("btn-copy-summary")!;
   btn.textContent = "Скопировано";
-  setTimeout(() => (btn.textContent = "Копировать саммари"), 2000);
+  setTimeout(() => (btn.textContent = "Копировать"), 2000);
 });
 
 document.getElementById("btn-download")!.addEventListener("click", () => {

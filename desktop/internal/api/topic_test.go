@@ -59,25 +59,21 @@ func TestTopicRoutes(t *testing.T) {
 	require.Equal(t, "Новая тема", result.Topic)
 }
 
-func TestSummaryCreateOnly(t *testing.T) {
+// Автосаммари не перезаписывает версию, сохранённую страницей за время генерации.
+func TestWriteSummaryKeepsExisting(t *testing.T) {
 	server, c := newTestServer(t, healthyEngine())
 	session, err := c.Store().Create("")
 	require.NoError(t, err)
-	path := "/sessions/" + session.SessionID + "/summary"
-	put := func(body string, conditional bool, code int) {
-		t.Helper()
-		req := request("PUT", path, strings.NewReader(body), testAPIToken)
-		if conditional {
-			req.Header.Set("If-None-Match", "*")
-		}
-		rec := httptest.NewRecorder()
-		server.ServeHTTP(rec, req)
-		require.Equal(t, code, rec.Code, rec.Body.String())
-	}
-	put(`{"content":"авто"}`, true, 200)
-	put(`{"content":"ручное"}`, false, 200)
-	put(`{"content":"не перезаписывать"}`, true, 412)
+	written, err := c.WriteSummary(session.SessionID, map[string]string{"content": "авто"}, true)
+	require.NoError(t, err)
+	require.True(t, written)
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, request("GET", path, nil, testAPIToken))
+	server.ServeHTTP(rec, request("PUT", "/sessions/"+session.SessionID+"/summary", strings.NewReader(`{"content":"ручное"}`), testAPIToken))
+	require.Equal(t, 200, rec.Code)
+	written, err = c.WriteSummary(session.SessionID, map[string]string{"content": "не перезаписывать"}, true)
+	require.NoError(t, err)
+	require.False(t, written)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, request("GET", "/sessions/"+session.SessionID+"/summary", nil, testAPIToken))
 	require.JSONEq(t, `{"content":"ручное"}`, rec.Body.String())
 }

@@ -1,8 +1,7 @@
 import { createPageSttApiClient } from "@shared/api-client";
-import { bindAppearanceControls, setAppearanceControls } from "@shared/appearance-controls";
-import { DEFAULT_STT_URL, getConfig, isLlmConfigured, saveConfig } from "@shared/config";
+import { DESKTOP_URL } from "@shared/config";
 import { PLATFORMS, platformForUrl } from "@shared/platform";
-import { applySavedTheme, watchThemeChanges } from "@shared/theme";
+import { applyDesktopTheme, watchThemeChanges } from "@shared/theme";
 import type { RecordingState } from "@shared/types";
 
 const $ = (s: string) => document.querySelector<HTMLElement>(s)!;
@@ -12,13 +11,9 @@ const views: Record<string, HTMLElement> = {
   detecting: $("#view-detecting"),
   recording: $("#view-recording"),
   suspended: $("#view-suspended"),
-  settings: $("#view-settings"),
 };
 let activeSessionId: string | null = null;
-let settingsOpen = false;
-
 function showView(state: string) {
-  if (settingsOpen && state !== "settings") return;
   for (const v of Object.values(views)) v.classList.add("hidden");
   if (state in views) views[state].classList.remove("hidden");
 }
@@ -86,7 +81,7 @@ $("#btn-finish")?.addEventListener("click", async () => {
   updateState();
 });
 
-// LLM настраивается только на странице: попап закрывается от клика мимо и потерял бы ввод.
+// Страницы отдаёт desktop: адреса расширения переадресуют туда или подскажут запустить Rechiv.
 function openPage(page: string) {
   chrome.tabs.create({ url: chrome.runtime.getURL(`pages/${page}`) });
   window.close();
@@ -97,68 +92,20 @@ $("#link-history").addEventListener("click", (e) => {
   openPage("history.html");
 });
 
-const settingsView = $("#view-settings");
-
-async function showSettings() {
-  settingsOpen = true;
-  $("#link-settings").classList.add("active");
-  showView("settings");
-  const config = await getConfig();
-  setAppearanceControls(settingsView, config);
-  const llmRow = $("#popup-llm");
-  const configured = isLlmConfigured(config);
-  llmRow.className = `settings-row ${configured ? "ready" : "invite"}`;
-  $("#popup-llm-text").textContent = configured
-    ? `Саммари: ${config.llmModel}`
-    : "Подключите LLM для саммари встреч";
-  void checkHealth();
-}
-
-async function checkHealth() {
-  const row = $("#popup-health");
-  const text = $("#popup-health-text");
-  row.className = "settings-row checking";
-  text.textContent = "Проверяю приложение…";
-  try {
-    const engine = (await createPageSttApiClient(DEFAULT_STT_URL).health()).engine;
-    if (engine?.status === "starting") {
-      row.className = "settings-row warning";
-      text.textContent = "Приложение загружает модель";
-    } else if (engine?.status === "error") {
-      row.className = "settings-row warning";
-      text.textContent = "Движок распознавания не запустился";
-    } else {
-      row.className = "settings-row ready";
-      text.textContent = "Приложение готово к записи";
-    }
-  } catch {
-    row.className = "settings-row down";
-    text.textContent = "Приложение не запущено";
-  }
-}
-
-function hideSettings() {
-  settingsOpen = false;
-  $("#link-settings").classList.remove("active");
-  void updateState();
-}
-
 $("#link-settings").addEventListener("click", (e) => {
   e.preventDefault();
-  if (settingsOpen) hideSettings();
-  else void showSettings();
+  openPage("settings.html");
 });
 
-$("#btn-settings-back").addEventListener("click", hideSettings);
-
-for (const id of ["#link-all-settings", "#popup-llm"]) {
-  $(id).addEventListener("click", (e) => {
-    e.preventDefault();
-    openPage("settings.html");
-  });
+/** Без desktop запись не начнётся: говорим об этом сразу, а не после нажатия. */
+async function checkDesktop() {
+  try {
+    await createPageSttApiClient(DESKTOP_URL).health();
+  } catch {
+    $("#status").textContent = "Приложение Rechiv не запущено — запустите его, чтобы записывать";
+    $("#status").classList.remove("hidden");
+  }
 }
-
-bindAppearanceControls(settingsView, (patch) => void saveConfig(patch));
 
 $("#btn-show-live").addEventListener("click", async () => {
   if (!activeSessionId) return;
@@ -176,5 +123,6 @@ $("#btn-show-live").addEventListener("click", async () => {
 });
 
 watchThemeChanges();
-void applySavedTheme();
-void updateState();
+void applyDesktopTheme();
+// updateState прячет строку статуса, поэтому проверка desktop — после него.
+void updateState().then(checkDesktop);

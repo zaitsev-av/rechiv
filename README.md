@@ -51,7 +51,8 @@ task run
 ```
 
 `task setup` creates `service/.venv` and installs the extension dependencies.
-`task run` starts the local Go application on `127.0.0.1:9876`.
+`task run` starts the local Go application on `127.0.0.1:9876`. Its pages open at
+`http://rechiv.localhost:9876/`: browsers resolve any `*.localhost` name to this computer.
 
 To develop the extension and the Go application at the same time:
 
@@ -99,10 +100,12 @@ task build:linux LINUX_ARCH=arm64
 ## Usage
 
 1. Open a call in Telemost, WB Stream or Google Meet.
-2. Click the extension icon and start recording.
-3. Open the movable live panel if you need it.
+2. Start recording from the Rechiv menu bar item (“Start recording” appears while the call tab
+   is open) or from the extension popup. A folder can also start recording automatically.
+3. Open the movable live panel if you need it — from the menu bar item or the popup.
 4. Stop the recording after the call.
-5. Open the transcript from the extension's history.
+5. Open the transcript from the menu bar item or the “Sessions” page served by the desktop app;
+   the extension's own links redirect there.
 
 The extension closes an audio chunk on a pause in speech; 20 seconds is only a safety
 cap for an uninterrupted monologue. That is why the first live line appears soon after
@@ -158,9 +161,11 @@ curl -H "Authorization: Bearer $(task --silent desktop:token)" \
   http://127.0.0.1:9876/sessions
 ```
 
-The local application token is not an external LLM token. The summary token is set
-separately in the extension settings. The first time you check, save or use an LLM address,
-Chrome asks for access to that address: the extension requests only the host you configured.
+The local application token is not an external LLM token. The LLM address, model and token
+are set in the Rechiv settings and stored by the desktop application: the token goes to the
+macOS Keychain (a file readable only by the owner on other systems), and the desktop app makes
+all LLM requests itself. Settings saved by older extension versions are moved to the desktop app
+once and erased from the browser.
 
 ## Main commands
 
@@ -203,8 +208,8 @@ rechiv/
 ├── extension/
 │   ├── src/background/         # service worker
 │   ├── src/content/            # WebRTC capture, names, live panel
-│   ├── src/pages/              # history and transcript
-│   ├── src/popup/              # popup and settings
+│   ├── src/pages/              # sessions, transcript, settings (served by desktop)
+│   ├── src/popup/              # popup: status and recording
 │   └── tests/
 ├── service/
 │   ├── rechiv_engine/
@@ -231,6 +236,10 @@ Main endpoints:
 - `GET /sessions/{id}/live`;
 - `GET|PUT /sessions/{id}/transcript`;
 - `GET|PUT /sessions/{id}/summary`;
+- `POST /sessions/{id}/summary/generate`;
+- `GET|PUT /settings/llm`, `POST /settings/llm/check`;
+- `POST /calls/poll`;
+- `GET /events`;
 - `DELETE /sessions/{id}`.
 
 ## MCP: connecting an agent
@@ -249,7 +258,7 @@ Calls can be organized into virtual folders without moving files on disk. In a c
 
 Folder settings (⋯ in the folder header) offer a title template with `{date}`, `{time}` and `{weekday}` in the machine’s local time. It applies to new calls routed by a link rule and, after confirmation, to existing automatic titles; manual titles and manual moves are preserved. Optional retention deletes calls older than the selected number of days at startup, hourly and immediately after saving, excluding recording and processing calls.
 
-With an LLM connected, `{topic}` adds a short Russian call topic after the transcript is ready; until then, the title omits the topic and its separators. Folder settings can also enable automatic summaries. The extension background makes one attempt, preserves existing summaries (including manual edits), and reports failures in the ready notification; summaries can still be generated manually on the transcript page. Automatic processing requires the extension and its LLM configuration. The desktop web page keeps its own LLM settings in browser localStorage: without those settings, the topic chip and summary toggle are disabled, while saved folder values are preserved. Configuring LLM only on the web page does not enable background processing in the extension.
+With an LLM connected, `{topic}` adds a short Russian call topic after the transcript is ready; until then, the title omits the topic and its separators. Folder settings can also enable automatic summaries. The desktop app makes one attempt after the transcript is ready, preserves existing summaries (including manual edits), resumes unfinished processing after a restart, and the extension reports the result in the ready notification; summaries can still be generated manually on the transcript page. Without a connected LLM the topic chip and summary toggle are disabled, while saved folder values are preserved.
 
 - `rechiv_list_calls` — find a call by date, title, participant or `folder`;
 - `rechiv_get_summary` — read the summary on its own;

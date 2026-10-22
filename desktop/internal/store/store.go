@@ -25,6 +25,7 @@ type Store struct {
 	foldersBroken bool
 	sessionsDir   string
 	sessions      map[string]*domain.Session
+	changed       chan struct{}
 }
 
 func New(dataDir string) (*Store, error) {
@@ -33,7 +34,7 @@ func New(dataDir string) (*Store, error) {
 		return nil, err
 	}
 
-	s := &Store{foldersPath: filepath.Join(dataDir, "folders.json"), sessionsDir: sessionsDir, sessions: make(map[string]*domain.Session)}
+	s := &Store{foldersPath: filepath.Join(dataDir, "folders.json"), sessionsDir: sessionsDir, sessions: make(map[string]*domain.Session), changed: make(chan struct{})}
 	s.folders, s.foldersBroken = readFolders(s.foldersPath)
 	if err := s.load(); err != nil {
 		return nil, err
@@ -230,6 +231,55 @@ func (s *Store) SetStatus(id string, status domain.SessionStatus, message string
 	return s.saveLocked(session)
 }
 
+// Complete завершает созвон; pending сразу отмечает, что впереди автообработка.
+func (s *Store) Complete(id string, pending bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[id]
+	if !ok {
+		return ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	session.Status = domain.StatusCompleted
+	session.Error = ""
+	session.FinishedAt = &now
+	if pending {
+		session.AutoProcessing = &domain.AutoProcessing{Pending: true}
+	}
+
+	return s.saveLocked(session)
+}
+
+func (s *Store) SetAutoProcessing(id string, result domain.AutoProcessing) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[id]
+	if !ok {
+		return ErrNotFound
+	}
+
+	session.AutoProcessing = &result
+
+	return s.saveLocked(session)
+}
+
+func (s *Store) SetSummaryJob(id string, job *domain.SummaryJob) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[id]
+	if !ok {
+		return ErrNotFound
+	}
+
+	session.SummaryJob = job
+
+	return s.saveLocked(session)
+}
+
 func (s *Store) SetProgress(id string, processed, failed int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -262,8 +312,21 @@ func (s *Store) Delete(id string) error {
 	}
 
 	delete(s.sessions, id)
+	s.notifyLocked()
 
 	return nil
+}
+
+// Changes закрывается при следующем изменении созвонов или папок; после него берите новый.
+func (s *Store) Changes() <-chan struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.changed
+}
+
+func (s *Store) notifyLocked() {
+	close(s.changed)
+	s.changed = make(chan struct{})
 }
 
 func (s *Store) load() error {
@@ -318,8 +381,11 @@ func (s *Store) saveLocked(session *domain.Session) error {
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return err
 	}
-
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	s.notifyLocked()
+	return nil
 }
 
 func clone(session *domain.Session) *domain.Session {

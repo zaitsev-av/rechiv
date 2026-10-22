@@ -35,13 +35,6 @@ const generatedSummary = {
   createdAt: "2026-10-08T12:00:00Z",
   chunked: false,
 };
-vi.mock("../src/shared/llm-client", () => ({
-  generateConfiguredSummary: vi.fn(async () => generatedSummary),
-}));
-vi.mock("../src/shared/config", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/shared/config")>()),
-  fetchModelInfo: vi.fn(async () => ({ modelId: "new-model", contextWindow: 8000 })),
-}));
 const savedSummary: SummaryResult = {
   content: "## Решения\n\n__Сделать__ задачу",
   model: "original-model",
@@ -74,7 +67,9 @@ const mockTranscript: TranscriptResult = {
 async function loadTranscriptModule(
   apiResponse: TranscriptResult | LiveTranscriptResult = mockTranscript,
   summary: SummaryResult = savedSummary,
+  session: { summaryJob?: { running?: boolean; error?: string } } = {},
 ) {
+  let generated = false;
   document.body.innerHTML = `
     <h1 id="title"></h1>
     <p id="info"></p>
@@ -83,32 +78,36 @@ async function loadTranscriptModule(
     </div>
     <div class="tabs">
       <button class="tab active" data-tab="transcript">Транскрипт</button>
-      <button class="tab disabled" data-tab="summary" id="tab-summary" disabled>Саммари</button>
+      <button class="tab disabled" data-tab="summary" id="tab-summary" disabled>Саммари <span id="tab-summary-mark"></span></button>
+    </div>
+    <div id="actions-transcript" class="hidden">
+      <button id="btn-summary" disabled></button>
+      <button id="btn-copy"></button>
+      <button id="btn-download"></button>
     </div>
     <div id="panel-transcript" class="tab-panel">
       <div id="filters"></div>
       <div id="segments"></div>
     </div>
     <div id="panel-summary" class="tab-panel hidden">
-      <div id="summary-content"><div id="summary-edited"></div><div id="summary-toolbar"></div><div id="summary-editor"></div></div>
+      <section id="summary-empty"><p id="summary-empty-text"></p><button id="btn-summary-empty"></button></section>
+      <article id="summary-content" class="hidden">
+        <span id="summary-info"></span><span id="summary-edited"></span>
+        <div id="summary-toolbar"></div>
+        <button id="btn-edit-summary"></button>
+        <button id="btn-copy-summary"></button>
+        <button id="btn-regenerate"></button>
+        <button id="btn-cancel-summary" class="hidden"></button>
+        <button id="btn-save-summary" class="hidden"></button>
+        <div id="summary-generating" class="hidden"></div>
+        <div id="summary-editor"></div>
+      </article>
     </div>
     <div id="banner" class="banner hidden">
       <span id="banner-text"></span>
       <button id="banner-close"></button>
     </div>
     <button id="btn-top" class="scroll-top"></button>
-    <footer id="footer-transcript">
-      <button id="btn-summary" disabled></button>
-      <button id="btn-download"></button>
-      <button id="btn-copy"></button>
-    </footer>
-    <footer id="footer-summary" class="hidden">
-      <button id="btn-copy-summary"></button>
-      <button id="btn-regenerate"></button>
-      <button id="btn-edit-summary"></button>
-      <button id="btn-save-summary" class="hidden"></button>
-      <button id="btn-cancel-summary" class="hidden"></button>
-    </footer>
   `;
   Object.defineProperty(window, "location", {
     value: { search: "?sessionId=test-1", href: "", origin: "https://stream.wb.ru" },
@@ -116,13 +115,24 @@ async function loadTranscriptModule(
     configurable: true,
   });
   chromeMock.storage.local.get.mockImplementation(async (key) => {
-    if (key === "config") return { config: { sttServiceUrl: "http://localhost:9876" } };
+    if (key === "config") return { config: {} };
     if (key === "sessionTitles") return {};
     return {};
   });
   globalThis.fetch = vi.fn().mockImplementation(async (url) => ({
     ok: true,
-    json: async () => (String(url).endsWith("/summary") ? summary : apiResponse),
+    json: async () => {
+      const path = String(url);
+      if (path.endsWith("/settings/llm"))
+        return { url: "", model: "m", apiKey: "k", configured: true };
+      if (path.endsWith("/summary/generate")) {
+        generated = true;
+        return { running: true };
+      }
+      if (path.endsWith("/sessions/test-1")) return generated ? {} : session;
+      if (path.endsWith("/summary")) return generated ? generatedSummary : summary;
+      return apiResponse;
+    },
   }));
   vi.resetModules();
   await import("../src/pages/transcript");
@@ -303,7 +313,7 @@ describe("transcript page (module integration)", () => {
     expect(button("btn-save-summary").classList.contains("btn-spinner")).toBe(true);
     await vi.waitFor(() => expect(editorMock.editable).toBe(false));
     await vi.waitFor(() =>
-      expect(button("summary-edited").textContent).toContain("Отредактировано вручную"),
+      expect(button("summary-edited").textContent).toContain("изменено вручную"),
     );
     const body = JSON.parse(String(summaryWrites()[0][1]?.body));
     expect(body).toEqual({
@@ -358,11 +368,50 @@ describe("transcript page (module integration)", () => {
         "Саммари отредактировано вручную. Перегенерировать и потерять правки?",
       ),
     );
-    expect(summaryWrites()).toHaveLength(0);
+    expect(summaryGenerations()).toHaveLength(0);
     button("btn-regenerate").click();
-    await vi.waitFor(() => expect(summaryWrites()).toHaveLength(1));
-    expect(JSON.parse(String(summaryWrites()[0][1]?.body))).toEqual(generatedSummary);
-    expect(button("summary-edited").classList.contains("hidden")).toBe(true);
+    // Саммари генерирует и сохраняет desktop, страница только показывает результат.
+    await vi.waitFor(() => expect(summaryGenerations()).toHaveLength(1));
+    expect(summaryWrites()).toHaveLength(0);
+    await vi.waitFor(() =>
+      expect(button("summary-edited").classList.contains("hidden")).toBe(true),
+    );
+  });
+
+  it("подхватывает саммари, которое desktop делает после ухода со страницы", async () => {
+    await loadTranscriptModule(mockTranscript, savedSummary, { summaryJob: { running: true } });
+    expect(button("btn-regenerate").textContent).toBe("Генерация…");
+    expect(button("btn-regenerate").disabled).toBe(true);
+  });
+
+  it("сообщает об ошибке саммари, сделанного без страницы", async () => {
+    await loadTranscriptModule(mockTranscript, null as unknown as SummaryResult, {
+      summaryJob: { error: "Неверный API-токен" },
+    });
+    expect(button("banner-text").textContent).toBe("Саммари не получилось: Неверный API-токен");
+  });
+
+  it("без саммари показывает вкладку с кнопкой, а по ней запускает генерацию", async () => {
+    await loadTranscriptModule(mockTranscript, null as unknown as SummaryResult);
+    expect(button("tab-summary").disabled).toBe(false);
+    expect(button("tab-summary-mark").textContent).toBe("нет");
+    expect(button("summary-empty").classList.contains("hidden")).toBe(false);
+    expect(button("summary-content").classList.contains("hidden")).toBe(true);
+
+    button("btn-summary").click();
+    await vi.waitFor(() => expect(summaryGenerations()).toHaveLength(1));
+    expect(button("panel-summary").classList.contains("hidden")).toBe(false);
+    await vi.waitFor(() =>
+      expect(button("summary-content").classList.contains("hidden")).toBe(false),
+    );
+    expect(button("btn-summary").classList.contains("hidden")).toBe(true);
+  });
+
+  it("входит в правку двойным кликом по тексту саммари", async () => {
+    await loadTranscriptModule();
+    button("summary-editor").dispatchEvent(new MouseEvent("dblclick"));
+    expect(editorMock.editable).toBe(true);
+    expect(button("btn-save-summary").classList.contains("hidden")).toBe(false);
   });
 
   it("не сохраняет пустой документ ни кнопкой, ни сочетанием клавиш", async () => {
@@ -414,6 +463,14 @@ function changeSummary(markdown = "Дополненное саммари") {
   editorMock.markdown = markdown;
   editorMock.onChange();
 }
+function summaryGenerations() {
+  return vi
+    .mocked(fetch)
+    .mock.calls.filter(
+      ([url, init]) => String(url).endsWith("/summary/generate") && init?.method === "POST",
+    );
+}
+
 function summaryWrites() {
   return vi
     .mocked(fetch)

@@ -479,6 +479,12 @@ describe("folder settings", () => {
   }
 
   it("disables LLM controls and preserves saved values without LLM", async () => {
+    vi.spyOn(api, "getLlmSettings").mockResolvedValue({
+      url: "",
+      model: "",
+      apiKey: "",
+      configured: false,
+    });
     const save = vi.spyOn(api, "setFolderSettings").mockResolvedValue(folders[0]);
     const field = settings("Дейли — {topic}", 0, true);
     await settle();
@@ -506,12 +512,17 @@ describe("folder settings", () => {
       titleTemplate: field.value,
       retentionDays: 0,
       autoSummary: true,
+      autoRecord: false,
+      livePanel: false,
     });
   });
 
   it("inserts topic with a separator, prevents duplicates and saves auto-summary", async () => {
-    chromeMock.storage.local.get.mockResolvedValue({
-      config: { llmUrl: "https://llm.test", llmModel: "model", llmApiKey: "key" },
+    vi.spyOn(api, "getLlmSettings").mockResolvedValue({
+      url: "https://llm.test",
+      model: "model",
+      apiKey: "key",
+      configured: true,
     });
     const save = vi.spyOn(api, "setFolderSettings").mockResolvedValue(folders[0]);
     const field = settings();
@@ -541,6 +552,8 @@ describe("folder settings", () => {
       titleTemplate: "Дейли: {topic}",
       retentionDays: 0,
       autoSummary: true,
+      autoRecord: false,
+      livePanel: false,
     });
   });
 
@@ -671,6 +684,8 @@ describe("folder settings", () => {
         titleTemplate: "Дейли {date}",
         retentionDays: 7,
         autoSummary: false,
+        autoRecord: false,
+        livePanel: false,
       });
       expect(document.querySelector("dialog")).toBeNull();
       expect(refresh).toHaveBeenCalled();
@@ -696,6 +711,23 @@ describe("folder settings", () => {
     document.querySelector("dialog")!.close();
   });
 
+  it("сохраняет автозапись и live-панель", async () => {
+    const save = vi.spyOn(api, "setFolderSettings").mockResolvedValue(folders[0]);
+    settings();
+    const toggle = (label: string) =>
+      document.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`)!;
+    expect(toggle("Записывать автоматически").getAttribute("aria-checked")).toBe("false");
+    toggle("Записывать автоматически").click();
+    toggle("Показывать live-транскрипт").click();
+    expect(toggle("Показывать live-транскрипт").getAttribute("aria-checked")).toBe("true");
+    submit();
+    await settle();
+    expect(save).toHaveBeenCalledWith(
+      "daily",
+      expect.objectContaining({ autoRecord: true, livePanel: true }),
+    );
+  });
+
   it("saves disabled retention as zero and leaves failed saves open for retry", async () => {
     const save = vi
       .spyOn(api, "setFolderSettings")
@@ -719,6 +751,8 @@ describe("folder settings", () => {
       titleTemplate: "Новый {time}",
       retentionDays: 0,
       autoSummary: false,
+      autoRecord: false,
+      livePanel: false,
     });
     expect(document.querySelector("dialog")).toBeNull();
   });

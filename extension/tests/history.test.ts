@@ -29,7 +29,7 @@ const mockSessions: SessionInfo[] = [
 async function loadHistoryModule(sessions: SessionInfo[] = mockSessions) {
   document.body.innerHTML = '<div id="sessions"></div><button id="btn-top"></button>';
   chromeMock.storage.local.get.mockImplementation(async (key) => {
-    if (key === "config") return { config: { sttServiceUrl: "http://localhost:9876" } };
+    if (key === "config") return { config: {} };
     if (key === "sessionTitles") return {};
     return {};
   });
@@ -163,6 +163,40 @@ describe("history page (module integration)", () => {
     expect(fetch).toHaveBeenCalledTimes(requests + 4);
   });
 
+  it("с потоком событий desktop не опрашивает, а перечитывает список по событию", async () => {
+    const sources: FakeEventSource[] = [];
+    class FakeEventSource {
+      listeners: Record<string, (() => void)[]> = {};
+      constructor(public url: string) {
+        sources.push(this);
+      }
+      addEventListener(type: string, listener: () => void) {
+        this.listeners[type] = [...(this.listeners[type] ?? []), listener];
+      }
+      emit(type: string) {
+        for (const listener of this.listeners[type] ?? []) listener();
+      }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.useFakeTimers();
+    await loadHistoryModule();
+    expect(sources.map((source) => source.url)).toEqual(["/events"]);
+    sources[0].emit("open");
+    const requests = vi.mocked(fetch).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+
+    sources[0].emit("sessions");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(requests);
+
+    const afterEvent = vi.mocked(fetch).mock.calls.length;
+    sources[0].emit("error");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(afterEvent);
+    vi.unstubAllGlobals();
+  });
+
   it("renders sessions sorted newest first", async () => {
     await loadHistoryModule();
     const cards = document.querySelectorAll(".segment.clickable");
@@ -184,7 +218,7 @@ describe("history page (module integration)", () => {
   it("shows error message safely when API unavailable", async () => {
     document.body.innerHTML = '<div id="sessions"></div><button id="btn-top"></button>';
     chromeMock.storage.local.get.mockImplementation(async (key) => {
-      if (key === "config") return { config: { sttServiceUrl: "http://localhost:9876" } };
+      if (key === "config") return { config: {} };
       return {};
     });
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("<script>alert(1)</script>"));

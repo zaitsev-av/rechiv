@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rechiv</title>
+    <script src="../shared/theme-boot.js"></script>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <style>
+      body { min-height: 100vh; display: grid; place-items: center; margin: 0; }
+      .offline { max-width: 420px; padding: 32px 24px; text-align: center; }
+      .offline h1 { margin: 0 0 12px; font-size: 22px; }
+      .offline p { margin: 0 0 20px; color: var(--muted); line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <main id="offline" class="offline" hidden>
+      <h1>Rechiv не запущен</h1>
+      <p>
+        Созвоны и настройки открывает приложение Rechiv. Запустите его — эта вкладка откроется
+        сама.
+      </p>
+      <button id="btn-retry" class="btn btn-primary" type="button">Проверить снова</button>
+    </main>
+    <script src="redirect.js" type="module"></script>
+  </body>
+</html>

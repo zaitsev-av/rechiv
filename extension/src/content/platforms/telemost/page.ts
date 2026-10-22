@@ -15,7 +15,7 @@ export class TelemostPageAdapter implements PageAdapter {
   readonly id = "telemost";
 
   private _names = new Map<string, string>();
-  /** Позиции из slotsConfig.slots; нулевая — всегда сам пользователь. */
+  /** Участники со всех страниц сетки, среди них и сам пользователь. */
   private _slotParticipants: (string | null)[] = [];
   private _streamByMid = new Map<string, string>();
   private _localParticipantId = "";
@@ -255,8 +255,8 @@ export class TelemostPageAdapter implements PageAdapter {
       message?.updateDescription?.description ?? message?.upsertDescription?.description;
     if (Array.isArray(description)) this._rememberNames(description);
 
-    const slots = message?.slotsConfig?.slots;
-    if (Array.isArray(slots)) this._rememberSlots(slots);
+    const slotsConfig = message?.slotsConfig;
+    if (Array.isArray(slotsConfig?.slots)) this._rememberSlots(slotsConfig);
 
     if (typeof message?.notification?.payload === "string") {
       this._rememberPeers(message.notification.payload);
@@ -319,22 +319,43 @@ export class TelemostPageAdapter implements PageAdapter {
    * Позиция — раскладка видеосетки, к аудио отношения не имеет.
    */
   // biome-ignore lint/suspicious/noExplicitAny: сигналинг площадки не типизирован
-  private _rememberSlots(slots: any[]): void {
-    this._slotParticipants = slots.map((slot) => {
-      const id = slot?.participant?.participantId ?? slot?.participantVideoByMid?.participantId;
-      return typeof id === "string" ? id : null;
-    });
+  private _rememberSlots(slotsConfig: any): void {
+    this._slotParticipants = [slotsConfig.slots, slotsConfig.nextSlots, slotsConfig.prevSlots]
+      .filter(Array.isArray)
+      .flat()
+      .map(slotParticipant);
 
     // Тот же состав приходит и при перестройке сетки — это не граница VAD.
-    const active = slots
-      .filter((slot) => slot?.vad === true)
-      .map((slot) => slot?.participant?.participantId ?? slot?.participantVideoByMid?.participantId)
-      .filter((id): id is string => typeof id === "string")
-      .sort();
+    const active = vadActive(slotsConfig);
     if (this._lastActive && sameStrings(active, this._lastActive)) return;
     this._lastActive = active;
     this._vadEvents.push({ at: performance.now(), active });
   }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: сигналинг площадки не типизирован
+function slotParticipant(slot: any): string | null {
+  const id = slot?.participant?.participantId ?? slot?.participantVideoByMid?.participantId;
+  return typeof id === "string" ? id : null;
+}
+
+/**
+ * Кто говорит, по одному сообщению slotsConfig. На больших созвонах участники вне первой
+ * страницы сетки приходят в nextSlots (и, при листании, в prevSlots) со своим vad — без них
+ * на стендапах терялась половина сигнала. Демонстрация экрана речью не считается.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: сигналинг площадки не типизирован
+export function vadActive(slotsConfig: any): string[] {
+  const active = new Set<string>();
+  for (const page of [slotsConfig?.slots, slotsConfig?.nextSlots, slotsConfig?.prevSlots]) {
+    if (!Array.isArray(page)) continue;
+    for (const slot of page) {
+      if (slot?.vad !== true) continue;
+      const id = slotParticipant(slot);
+      if (id) active.add(id);
+    }
+  }
+  return [...active].sort();
 }
 
 function sameStrings(left: string[], right: string[]): boolean {

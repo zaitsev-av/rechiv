@@ -1,6 +1,6 @@
 // Isolated world: мост между interceptor (main world) и service worker.
 
-import { getConfig } from "@shared/config";
+import { DESKTOP_URL } from "@shared/config";
 import type { InterceptorMessage } from "@shared/messages";
 import { RecordingStorage } from "@shared/storage";
 import type { VadTimeline } from "@shared/types";
@@ -26,12 +26,28 @@ const PREFIX = "[Rechiv:injector]";
 const remoteStreamIsPerson = capabilitiesForHost(location.host).audio === "per-participant";
 
 async function init() {
-  const config = await getConfig();
-  console.log(PREFIX, "init, sttServiceUrl:", config.sttServiceUrl);
+  console.log(PREFIX, "init, desktop:", DESKTOP_URL);
   storage = new RecordingStorage();
 
   window.addEventListener("message", handleInterceptorMessage);
   chrome.runtime.onMessage.addListener(handleServiceWorkerMessage);
+}
+
+const KEEP_ALIVE_MS = 20_000;
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Chrome усыпляет service worker через 30 с без событий, а канал с desktop ждёт команду дольше. */
+function keepChannelAlive() {
+  if (keepAliveTimer) return;
+  keepAliveTimer = setInterval(() => {
+    if (!chrome.runtime?.id) {
+      // Расширение перезагрузили: этот скрипт уже отрезан от него.
+      if (keepAliveTimer) clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+      return;
+    }
+    chrome.runtime.sendMessage({ action: "keepAlive" }).catch(() => undefined);
+  }, KEEP_ALIVE_MS);
 }
 
 function handleInterceptorMessage(event: MessageEvent) {
@@ -45,6 +61,7 @@ function handleInterceptorMessage(event: MessageEvent) {
         action: "webrtcDetected",
         url: location.href,
       });
+      keepChannelAlive();
       break;
 
     case "RECHIV_TRACK_ADDED":
@@ -215,13 +232,12 @@ async function startCapture(sessionId: string, uploadToken?: string) {
   adapterMappedStreams.clear();
   identifiedNames.clear();
 
-  const config = await getConfig();
   window.postMessage(
     {
       type: "RECHIV_START_CAPTURE",
       sessionId,
       uploadToken: currentUploadToken ?? undefined,
-      sttServiceUrl: config.sttServiceUrl,
+      sttServiceUrl: DESKTOP_URL,
     },
     location.origin,
   );

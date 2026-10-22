@@ -234,6 +234,41 @@ describe("checkPendingSessions", () => {
     expect(options?.message).toContain("2");
   });
 
+  it("ждёт автообработку desktop и сообщает её результат", async () => {
+    chromeMock.storage.local.get.mockResolvedValue({ pendingSessions: ["abc123"] });
+    const getSession = vi
+      .fn<SttApiClient["getSession"]>()
+      .mockResolvedValueOnce(
+        mockSession({ status: "completed", autoProcessing: { pending: true } }),
+      )
+      .mockResolvedValueOnce(
+        mockSession({ status: "completed", autoProcessing: { summaryReady: true } }),
+      );
+
+    await checkPendingSessions(mockSttApi({ getSession }));
+    expect(chrome.notifications.create).not.toHaveBeenCalled();
+
+    await checkPendingSessions(mockSttApi({ getSession }));
+    const [, options] = chromeMock.notifications.create.mock.calls[0];
+    expect(options?.title).toBe("Транскрипт и саммари готовы");
+  });
+
+  it("сообщает, что саммари не получилось", async () => {
+    chromeMock.storage.local.get.mockResolvedValue({ pendingSessions: ["abc123"] });
+    const api = {
+      getSession: vi
+        .fn<SttApiClient["getSession"]>()
+        .mockResolvedValue(
+          mockSession({ status: "completed", autoProcessing: { summaryFailed: true } }),
+        ),
+    };
+
+    await checkPendingSessions(mockSttApi(api));
+
+    const [, options] = chromeMock.notifications.create.mock.calls[0];
+    expect(options?.message).toContain("Саммари не получилось");
+  });
+
   it("продолжает ждать, пока идёт обработка", async () => {
     chromeMock.storage.local.get.mockResolvedValue({ pendingSessions: ["abc123"] });
     const api = {
@@ -418,5 +453,155 @@ describe("адресация фрейма звонка", () => {
       { action: "startCapture" },
       { frameId: 0 },
     );
+  });
+});
+
+describe("пробуждение service worker сообщением", () => {
+  it("отвечает после bootstrap, а не падает на пустом controller", async () => {
+    let releaseConfig!: () => void;
+    const configLoaded = new Promise<void>((resolve) => {
+      releaseConfig = resolve;
+    });
+    const originalGet = chromeMock.storage.local.get.getMockImplementation();
+    chromeMock.storage.local.get.mockImplementation(async (key) => {
+      if (key === "config") await configLoaded;
+      return originalGet ? originalGet(key) : {};
+    });
+
+    vi.resetModules();
+    await import("../src/background/service-worker");
+    const handler = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls.at(-1)?.[0] as (
+      msg: unknown,
+      sender: unknown,
+      respond: (r: unknown) => void,
+    ) => boolean;
+    const response = new Promise((resolve) => handler({ action: "getState" }, {}, resolve));
+    releaseConfig();
+
+    await expect(response).resolves.toMatchObject({ state: "idle" });
+    if (originalGet) chromeMock.storage.local.get.mockImplementation(originalGet);
+  });
+});
+
+describe("канал с desktop", () => {
+  const callTab = mockTab({ id: 7, url: "https://telemost.yandex.ru/j/123", title: "Дейли" });
+
+  beforeEach(() => {
+    // Контроллер живёт в модуле: запись из прошлого теста не должна мешать следующему.
+    vi.resetModules();
+    for (const key of Object.keys(sessionStore)) delete sessionStore[key];
+    vi.mocked(chrome.tabs.get).mockImplementation(async (id) => {
+      if (id === 7) return callTab;
+      throw new Error("No tab with id");
+    });
+  });
+
+  it("описывает вкладку, где замечен звонок", async () => {
+    const sw = await import("../src/background/service-worker");
+    expect(await sw.describeCall()).toBeNull();
+
+    await rememberCallFrame({ tab: callTab, frameId: 3 } as chrome.runtime.MessageSender);
+    expect(await sw.describeCall()).toEqual({
+      platform: "Яндекс Телемост",
+      url: "https://telemost.yandex.ru/j/123",
+      title: "Дейли",
+      recording: false,
+    });
+  });
+
+  it("команда start из трея начинает запись в кадре звонка", async () => {
+    const sw = await import("../src/background/service-worker");
+    await rememberCallFrame({ tab: callTab, frameId: 3 } as chrome.runtime.MessageSender);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/health"))
+        return Response.json({ status: "ok", engine: { status: "ready" } });
+      if (url.endsWith("/sessions")) return Response.json({ sessionId: "s1", uploadToken: "u1" });
+      return new Response(null, { status: 404 });
+    });
+
+    await sw.handleCallCommand("start");
+
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      7,
+      { action: "startCapture", sessionId: "s1", uploadToken: "u1" },
+      { frameId: 3 },
+    );
+    expect(await sw.describeCall()).toMatchObject({ recording: true, sessionId: "s1" });
+    expect(chrome.notifications.create).not.toHaveBeenCalledWith(
+      "auto-recording",
+      expect.anything(),
+    );
+  });
+
+  it("помечает вход в созвон по звуку собеседника, а не по WebRTC", async () => {
+    const sw = await import("../src/background/service-worker");
+    const handler = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls.at(-1)?.[0] as (
+      msg: unknown,
+      sender: unknown,
+      respond: (r: unknown) => void,
+    ) => boolean;
+    const send = (msg: unknown) =>
+      new Promise((resolve) => handler(msg, { tab: callTab, frameId: 3 }, resolve));
+
+    await send({ action: "webrtcDetected", url: callTab.url });
+    expect(await sw.describeCall()).not.toHaveProperty("joined");
+    await send({ action: "trackAdded", streamId: "a", kind: "local" });
+    expect(await sw.describeCall()).not.toHaveProperty("joined");
+    await send({ action: "trackAdded", streamId: "b", kind: "remote" });
+    expect(await sw.describeCall()).toMatchObject({ joined: true });
+  });
+
+  it("автозапись предупреждает уведомлением, а live-панель открывается по папке", async () => {
+    const sw = await import("../src/background/service-worker");
+    await rememberCallFrame({ tab: callTab, frameId: 3 } as chrome.runtime.MessageSender);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/health"))
+        return Response.json({ status: "ok", engine: { status: "ready" } });
+      if (url.endsWith("/sessions")) return Response.json({ sessionId: "s2", livePanel: true });
+      return new Response(null, { status: 404 });
+    });
+
+    await sw.handleCallCommand("start", true);
+
+    expect(chrome.notifications.create).toHaveBeenCalledWith(
+      "auto-recording",
+      expect.objectContaining({ title: "Запись началась автоматически" }),
+    );
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      7,
+      { action: "showLiveOverlay", sessionId: "s2" },
+      { frameId: 0 },
+    );
+  });
+});
+
+describe("вкладка не приняла начало захвата", () => {
+  it("удаляет пустую сессию и просит обновить страницу", async () => {
+    vi.resetModules();
+    const callTab = mockTab({ id: 9, url: "https://telemost.yandex.ru/j/9" });
+    vi.mocked(chrome.tabs.get).mockImplementation(async () => callTab);
+    const sw = await import("../src/background/service-worker");
+    await sw.rememberCallFrame({ tab: callTab, frameId: 2 } as chrome.runtime.MessageSender);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/health"))
+        return Response.json({ status: "ok", engine: { status: "ready" } });
+      if (url.endsWith("/sessions")) return Response.json({ sessionId: "dead" });
+      return new Response(null, { status: 204 });
+    });
+    vi.mocked(chrome.tabs.sendMessage).mockRejectedValueOnce(
+      new Error("Could not establish connection. Receiving end does not exist."),
+    );
+
+    await expect(sw.handleCallCommand("start")).rejects.toThrow("Обновите страницу созвона");
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/\/sessions\/dead$/),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(await sw.describeCall()).toMatchObject({ recording: false });
+    expect(await sw.describeCall()).not.toHaveProperty("stopping");
   });
 });

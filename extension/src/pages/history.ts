@@ -1,10 +1,9 @@
 import { createPageSttApiClient, type SttApiClient } from "@shared/api-client";
-import { getConfig } from "@shared/config";
+import { DESKTOP_URL } from "@shared/config";
 import { startInlineEdit } from "@shared/inline-edit";
 import { setupScrollTop } from "@shared/scroll-top";
-import { applyAppearance, watchThemeChanges } from "@shared/theme";
-import type { SessionInfo } from "@shared/types";
-import { dropLegacyTitle, formatDateTime, getLegacyTitles, plural } from "@shared/utils";
+import { applyDesktopTheme, watchThemeChanges } from "@shared/theme";
+import { formatDateTime, plural } from "@shared/utils";
 
 import { HistoryFolders } from "./history-folders";
 
@@ -14,6 +13,10 @@ let loading = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let editingTitle = false;
 let pollNeeded = false;
+/** Пока открыт поток событий desktop, опрос не нужен. */
+let liveUpdates = false;
+/** Событие пришло, пока список нельзя перерисовать: перерисуем, как только станет можно. */
+let renderPending = false;
 const REFRESH_INTERVAL_MS = 2000;
 
 const STATUS_MAP: Record<string, string> = {
@@ -39,15 +42,44 @@ function formatDuration(createdAt: string, finishedAt: string | null): string {
 }
 
 async function init() {
-  const config = await getConfig();
-  applyAppearance(config);
-  api = createPageSttApiClient(config.sttServiceUrl);
+  await applyDesktopTheme();
+  api = createPageSttApiClient(DESKTOP_URL);
   folders = new HistoryFolders(api, renderSessions, () => scheduleRefresh(pollNeeded));
   await renderSessions();
+  subscribeToChanges();
+}
+
+function subscribeToChanges() {
+  if (typeof EventSource === "undefined") return;
+  const source = new EventSource(api.eventsUrl());
+  let connectedBefore = false;
+  source.addEventListener("open", () => {
+    liveUpdates = true;
+    scheduleRefresh(false);
+    // После обрыва события могли потеряться.
+    if (connectedBefore) void renderSessions();
+    connectedBefore = true;
+  });
+  source.addEventListener("sessions", () => {
+    if (document.visibilityState === "hidden") {
+      renderPending = true;
+      return;
+    }
+    void renderSessions();
+  });
+  source.addEventListener("error", () => {
+    // Старый desktop без /events или обрыв: EventSource переподключится сам, а пока — опрос.
+    liveUpdates = false;
+    scheduleRefresh(pollNeeded);
+  });
 }
 
 async function renderSessions() {
-  if (editingTitle || folders.paused || loading) return;
+  if (editingTitle || folders.paused || loading) {
+    renderPending = true;
+    return;
+  }
+  renderPending = false;
   loading = true;
   const container = document.getElementById("sessions")!;
   const countBadge = document.getElementById("session-count");
@@ -57,9 +89,6 @@ async function renderSessions() {
     if (editingTitle || folders.paused) return;
     folders.update(folderList, allSessions);
     const sessions = folders.visible();
-    const legacyTitles = await getLegacyTitles();
-    await migrateLegacyTitles(sessions, legacyTitles);
-    if (editingTitle || folders.paused) return;
     container.innerHTML = "";
     if (countBadge) {
       countBadge.textContent = `${sessions.length} ${plural(sessions.length, "запись", "записи", "записей")}`;
@@ -91,7 +120,7 @@ async function renderSessions() {
         : Object.keys(s.participants ?? {}).length;
       const status = STATUS_MAP[s.status] ?? s.status;
       const duration = s.duration ?? formatDuration(s.createdAt, s.finishedAt);
-      const title = s.title || legacyTitles[s.sessionId] || "";
+      const title = s.title || "";
       const dt = new Date(s.createdAt);
       const { date, time } = formatDateTime(dt);
 
@@ -214,29 +243,17 @@ async function renderSessions() {
   }
 }
 
-async function migrateLegacyTitles(
-  sessions: SessionInfo[],
-  legacyTitles: Record<string, string>,
-): Promise<void> {
-  for (const session of sessions) {
-    const legacy = legacyTitles[session.sessionId];
-    if (!legacy || session.title) continue;
-    try {
-      await api.updateTitle(session.sessionId, legacy);
-      session.title = legacy;
-      await dropLegacyTitle(session.sessionId);
-    } catch {
-      // Повторим при следующем открытии.
-    }
-  }
-}
-
 function scheduleRefresh(needed: boolean) {
   if (refreshTimer !== null) {
     clearTimeout(refreshTimer);
     refreshTimer = null;
   }
-  if (!needed || editingTitle || folders?.paused || document.visibilityState === "hidden") return;
+  if (editingTitle || folders?.paused || document.visibilityState === "hidden") return;
+  if (liveUpdates) {
+    if (renderPending) void renderSessions();
+    return;
+  }
+  if (!needed) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
     void renderSessions();

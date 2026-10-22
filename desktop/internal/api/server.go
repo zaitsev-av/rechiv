@@ -15,8 +15,10 @@ import (
 	"sync"
 	"time"
 
+	"rechiv/desktop/internal/calls"
 	"rechiv/desktop/internal/controller"
 	"rechiv/desktop/internal/domain"
+	"rechiv/desktop/internal/llm"
 	"rechiv/desktop/internal/onboarding"
 	"rechiv/desktop/internal/store"
 )
@@ -46,9 +48,15 @@ type Server struct {
 	handler            http.Handler
 	webUIDir           string
 	onboarding         onboardingService
-	summaryMu          sync.Mutex
+	appearanceMu       sync.Mutex
 	extensionMu        sync.RWMutex
 	lastExtension      *observedExtension
+	calls              *calls.Hub
+	done               chan struct{}
+	llmSettings        *llm.Settings
+	llmClient          llmClient
+	summaries          summaryGenerator
+	closeOnce          sync.Once
 }
 
 type Option func(*Server)
@@ -117,6 +125,9 @@ type sessionResponse struct {
 	Error           string                  `json:"error,omitempty"`
 	UploadToken     string                  `json:"uploadToken,omitempty"`
 	Duration        string                  `json:"duration,omitempty"`
+	LivePanel       bool                    `json:"livePanel,omitempty"`
+	AutoProcessing  *domain.AutoProcessing  `json:"autoProcessing,omitempty"`
+	SummaryJob      *domain.SummaryJob      `json:"summaryJob,omitempty"`
 }
 
 type participant struct {
@@ -146,12 +157,19 @@ func New(
 		allowedExtensionID: allowedExtensionID,
 		expectedVersion:    expectedVersion,
 		logger:             logger,
+		done:               make(chan struct{}),
 	}
 	for _, option := range options {
 		option(server)
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /settings/appearance", server.getAppearance)
+	mux.HandleFunc("PUT /settings/appearance", server.putAppearance)
+	mux.HandleFunc("GET /settings/llm", server.getLLMSettings)
+	mux.HandleFunc("PUT /settings/llm", server.putLLMSettings)
+	mux.HandleFunc("POST /settings/llm/check", server.checkLLM)
+	mux.HandleFunc("POST /sessions/{id}/summary/generate", server.generateSummary)
 
 	mux.HandleFunc("PUT /folders/{id}/settings", server.setFolderSettings)
 	mux.HandleFunc("GET /folders/{id}/titles", server.previewFolderTitles)
@@ -165,6 +183,8 @@ func New(
 	mux.HandleFunc("DELETE /folders/{id}/rules", server.deleteFolderRule)
 	mux.HandleFunc("POST /folders/{id}/sessions", server.moveFolderSessions)
 	mux.HandleFunc("PUT /sessions/{id}/folder", server.moveSession)
+	mux.HandleFunc("POST /calls/poll", server.pollCalls)
+	mux.HandleFunc("GET /events", server.events)
 	mux.HandleFunc("GET /health", server.health)
 	mux.HandleFunc("GET /auth/token", server.bootstrapToken)
 	mux.HandleFunc("GET /onboarding/state", server.onboardingState)
@@ -200,11 +220,13 @@ func isWebUIPath(path string) bool {
 	switch {
 	case path == "/health", strings.HasPrefix(path, "/auth/"):
 		return false
-	case strings.HasPrefix(path, "/onboarding/"):
+	case strings.HasPrefix(path, "/settings/"), strings.HasPrefix(path, "/onboarding/"):
 		return false
 	case path == "/folders", strings.HasPrefix(path, "/folders/"):
 		return false
 	case path == "/sessions", strings.HasPrefix(path, "/sessions/"):
+		return false
+	case path == "/events", strings.HasPrefix(path, "/calls/"):
 		return false
 	default:
 		return true
@@ -213,6 +235,15 @@ func isWebUIPath(path string) bool {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
+}
+
+func (s *Server) LastExtensionContact() time.Time {
+	s.extensionMu.RLock()
+	defer s.extensionMu.RUnlock()
+	if s.lastExtension == nil {
+		return time.Time{}
+	}
+	return s.lastExtension.LastSeenAt
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -349,7 +380,11 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, s.sessionView(session))
+	view := s.sessionView(session)
+	if folder, ok := s.controller.Store().FolderForCallURL(session.CallURL); ok && folder.ID == session.FolderID {
+		view.LivePanel = folder.Settings.LivePanel
+	}
+	writeJSON(w, http.StatusCreated, view)
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, _ *http.Request) {
@@ -591,21 +626,16 @@ func (s *Server) putSummary(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, err)
 		return
 	}
-	s.summaryMu.Lock()
-	defer s.summaryMu.Unlock()
-	if r.Header.Get("If-None-Match") == "*" {
-		_, err := os.Stat(s.controller.SummaryPath(r.PathValue("id")))
-		if err == nil {
-			w.WriteHeader(http.StatusPreconditionFailed)
-			return
-		}
-		if !os.IsNotExist(err) {
-			s.internalError(w, err)
-			return
-		}
+	var body any
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-
-	s.putJSONFile(w, r, s.controller.SummaryPath(r.PathValue("id")))
+	if _, err := s.controller.WriteSummary(r.PathValue("id"), body, false); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
@@ -698,6 +728,8 @@ func (s *Server) sessionView(session *domain.Session) sessionResponse {
 		Progress:        progress,
 		Error:           session.Error,
 		UploadToken:     session.UploadToken,
+		AutoProcessing:  session.AutoProcessing,
+		SummaryJob:      session.SummaryJob,
 	}
 
 	if session.Status == domain.StatusCompleted || session.Status == domain.StatusError {
@@ -726,7 +758,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		if origin != "" && (s.validExtensionOrigin(origin) || allowedPageOrigin(origin)) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-None-Match, "+extensionVersionHeader)
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+extensionVersionHeader)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		}
 
@@ -735,7 +767,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if r.URL.Path == "/health" || r.URL.Path == "/auth/token" {
+		if r.URL.Path == "/health" || r.URL.Path == "/auth/token" || r.URL.Path == "/events" {
 			next.ServeHTTP(w, r)
 			return
 		}

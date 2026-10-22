@@ -1,3 +1,4 @@
+import type { Config } from "./config";
 import { extensionVersionHeaders } from "./extension-version";
 import { clearCachedSttToken, ensureSttToken } from "./stt-token";
 import type {
@@ -5,10 +6,16 @@ import type {
   FolderSettings,
   LiveTranscriptResult,
   SessionInfo,
+  SummaryJob,
   SummaryResult,
   TranscriptResult,
   VadTimeline,
 } from "./types";
+
+export interface AppearanceSettings {
+  theme: Config["theme"] | "";
+  palette: Config["palette"] | "";
+}
 
 export interface HealthResult {
   status: string;
@@ -24,6 +31,46 @@ export interface HealthResult {
     lastSeenAt: string | null;
     outdated: boolean;
   };
+}
+
+/** Созвон во вкладке, о котором расширение сообщает desktop. */
+export interface CallPresence {
+  platform: string;
+  url: string;
+  title: string;
+  recording: boolean;
+  /** Во вкладке пришёл звук собеседника: вход в созвон, а не проверка устройств. */
+  joined?: boolean;
+  /** Остановку попросили, вкладка дописывает хвост записи. */
+  stopping?: boolean;
+  sessionId?: string;
+}
+
+export type CallCommand = "start" | "stop" | "live";
+
+export interface CallPollResult {
+  command?: CallCommand;
+  /** Запись начинает настройка папки. */
+  auto?: boolean;
+}
+
+export interface LlmSettings {
+  url: string;
+  model: string;
+  apiKey: string;
+  configured: boolean;
+}
+
+/** apiKey не передан — desktop оставит сохранённый ключ. */
+export interface LlmSettingsInput {
+  url: string;
+  model: string;
+  apiKey?: string;
+}
+
+export interface LlmCheckResult {
+  state: "ok" | "warning" | "error";
+  detail: string;
 }
 
 export interface OnboardingBrowser {
@@ -68,6 +115,73 @@ export class SttApiClient {
     const result = await response.json();
     this._coreAuthRequired = result.authRequired === true;
     return result;
+  }
+
+  async getAppearance(): Promise<AppearanceSettings> {
+    const response = await this._fetchCore("/settings/appearance", {
+      method: "GET",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) throw new Error(`GET /settings/appearance failed: ${response.status}`);
+    return response.json();
+  }
+
+  async putAppearance(appearance: Pick<Config, "theme" | "palette">): Promise<void> {
+    const response = await this._fetchCore("/settings/appearance", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(appearance),
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) throw new Error(`PUT /settings/appearance failed: ${response.status}`);
+  }
+
+  /** Долгий опрос: desktop держит запрос до команды из трея или до истечения wait. */
+  async pollCalls(
+    call: CallPresence | null,
+    waitSeconds: number,
+    signal?: AbortSignal,
+  ): Promise<CallPollResult> {
+    const resp = await this._fetchCore("/calls/poll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ call, wait: waitSeconds }),
+      signal,
+    });
+    if (!resp.ok) throw new Error(`POST /calls/poll failed: ${resp.status}`);
+    return resp.json();
+  }
+
+  /** Поток SSE: desktop сообщает, что список созвонов или папок изменился. */
+  eventsUrl(): string {
+    return `${this.baseUrl}/events`;
+  }
+
+  async getLlmSettings(): Promise<LlmSettings> {
+    return this._jsonRequest("/settings/llm", "GET");
+  }
+
+  async putLlmSettings(input: LlmSettingsInput): Promise<LlmSettings> {
+    return this._jsonRequest("/settings/llm", "PUT", input);
+  }
+
+  async checkLlm(input: LlmSettingsInput): Promise<LlmCheckResult> {
+    return this._jsonRequest("/settings/llm/check", "POST", input);
+  }
+
+  /** Запускает саммари в desktop; ход и ошибку отдаёт summaryJob сессии. */
+  async generateSummary(sessionId: string): Promise<SummaryJob> {
+    return this._jsonRequest(`/sessions/${encodeURIComponent(sessionId)}/summary/generate`, "POST");
+  }
+
+  private async _jsonRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
+    const response = await this._fetchCore(path, {
+      method,
+      headers: body === undefined ? {} : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(await errorDetail(response, `${method} ${path}`));
+    return response.json();
   }
 
   async createSession(callUrl: string): Promise<SessionInfo> {
@@ -215,16 +329,12 @@ export class SttApiClient {
     return resp.json();
   }
 
-  async putSummary(sessionId: string, summary: SummaryResult, onlyIfAbsent = false): Promise<void> {
+  async putSummary(sessionId: string, summary: SummaryResult): Promise<void> {
     const resp = await this._fetchCore(`/sessions/${sessionId}/summary`, {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        ...(onlyIfAbsent ? { "If-None-Match": "*" } : {}),
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(summary),
     });
-    if (onlyIfAbsent && resp.status === 412) return;
     if (!resp.ok) throw new Error(`PUT /sessions/${sessionId}/summary failed: ${resp.status}`);
   }
 
@@ -281,11 +391,11 @@ export class SttApiClient {
         Authorization: `Bearer ${token}`,
       },
     });
-    let token = await ensureSttToken(this.baseUrl);
+    let token = await ensureSttToken(this.baseUrl, init.signal);
     let response = await fetch(`${this.baseUrl}${path}`, withToken(token));
     if (response.status === 401) {
       await clearCachedSttToken();
-      token = await ensureSttToken(this.baseUrl);
+      token = await ensureSttToken(this.baseUrl, init.signal);
       response = await fetch(`${this.baseUrl}${path}`, withToken(token));
     }
     return response;
@@ -310,4 +420,14 @@ export class SttApiClient {
       return undefined as T;
     }
   }
+}
+
+async function errorDetail(response: Response, request: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: string };
+    if (body?.detail) return body.detail;
+  } catch {
+    // Тело без JSON — достаточно кода ответа.
+  }
+  return `${request} failed: ${response.status}`;
 }

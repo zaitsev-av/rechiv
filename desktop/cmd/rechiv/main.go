@@ -19,12 +19,16 @@ import (
 
 	"rechiv/desktop/assets"
 	"rechiv/desktop/internal/api"
+	"rechiv/desktop/internal/autoprocess"
+	"rechiv/desktop/internal/calls"
 	"rechiv/desktop/internal/controller"
 	"rechiv/desktop/internal/engine"
 	"rechiv/desktop/internal/extensiondist"
 	"rechiv/desktop/internal/library"
+	"rechiv/desktop/internal/llm"
 	"rechiv/desktop/internal/mcpserver"
 	"rechiv/desktop/internal/onboarding"
+	"rechiv/desktop/internal/secret"
 	"rechiv/desktop/internal/security"
 	"rechiv/desktop/internal/store"
 	"rechiv/desktop/internal/tray"
@@ -65,13 +69,28 @@ func main() {
 	}()
 
 	tray.Run(tray.Options{
-		Icon:          assets.MenuBarIcon,
-		Version:       version,
-		SessionsURL:   app.sessionsURL,
-		OnboardingURL: app.onboardingURL,
-		DataDir:       app.dataDir,
-		Status:        app.trayStatus,
-		Logger:        app.logger,
+		Config: tray.Config{
+			Version:       version,
+			SessionsURL:   app.sessionsURL,
+			OnboardingURL: app.onboardingURL,
+			Model:         app.modelName,
+			Engine:        app.engineKind,
+		},
+		Icon:           assets.MenuBarIcon,
+		RecordingIcon:  assets.MenuBarRecordingIcon,
+		ProcessingIcon: assets.MenuBarProcessingIcon,
+		StoppingIcon:   assets.MenuBarStoppingIcon,
+		IndicatorIcons: map[tray.Indicator][]byte{
+			tray.IndicatorRed:    assets.IndicatorRed,
+			tray.IndicatorBlue:   assets.IndicatorBlue,
+			tray.IndicatorGreen:  assets.IndicatorGreen,
+			tray.IndicatorOrange: assets.IndicatorOrange,
+			tray.IndicatorGray:   assets.IndicatorGray,
+		},
+		DataDir: app.dataDir,
+		Status:  app.trayStatus,
+		Command: app.sendCallCommand,
+		Logger:  app.logger,
 	})
 
 	if err := app.stop(); err != nil {
@@ -204,18 +223,26 @@ func start(args []string) (result *application, err error) {
 	)
 
 	control.KeepAudio = *keepAudio
+	llmSettings := llm.NewSettings(*appDataDir, secret.Default(*appDataDir))
+	llmClient := llm.NewClient()
+	processingCtx, stopProcessing := context.WithCancel(context.Background())
+	processor := autoprocess.New(processingCtx, sessionStore, control, llmSettings, llmClient, logger)
+	control.AutoProcessor = processor
 	if err := control.Start(); err != nil {
+		stopProcessing()
 		return nil, fmt.Errorf("start controller: %w", err)
 	}
+	processor.Resume()
 
 	webUI := findWebUIDir()
 	sessionsURL := ""
 	onboardingURL := ""
-	options := []api.Option{api.WithOnboarding(onboardingService)}
+	callHub := calls.NewHub()
+	options := []api.Option{api.WithOnboarding(onboardingService), api.WithCalls(callHub), api.WithLLM(llmSettings, llmClient), api.WithSummaries(processor)}
 	if webUI != "" {
 		options = append(options, api.WithWebUI(webUI))
-		sessionsURL = "http://" + *listenAddress + "/"
-		onboardingURL = "http://" + *listenAddress + "/onboarding.html"
+		sessionsURL = pageBaseURL(*listenAddress) + "/"
+		onboardingURL = pageBaseURL(*listenAddress) + "/onboarding.html"
 	}
 
 	handler := api.New(control, apiToken, *allowedExtensionID, version, logger, options...)
@@ -227,9 +254,12 @@ func start(args []string) (result *application, err error) {
 		WriteTimeout:      2 * time.Minute,
 		IdleTimeout:       2 * time.Minute,
 	}
+	httpServer.RegisterOnShutdown(callHub.Close)
+	httpServer.RegisterOnShutdown(handler.Close)
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
+		stopProcessing()
 		control.Close()
 		return nil, err
 	}
@@ -240,15 +270,21 @@ func start(args []string) (result *application, err error) {
 	logger.Printf("Engine worker: %s", *engineWorker)
 
 	app := &application{
-		control:       control,
-		httpServer:    httpServer,
-		logger:        logger,
-		dataDir:       *appDataDir,
-		sessionsURL:   sessionsURL,
-		onboardingURL: onboardingURL,
-		serverErrors:  make(chan error, 1),
-		closeLog:      closeLog,
-		instanceLock:  instanceLock,
+		control:        control,
+		api:            handler,
+		calls:          callHub,
+		processor:      processor,
+		stopProcessing: stopProcessing,
+		modelName:      *modelName,
+		engineKind:     *engineKind,
+		httpServer:     httpServer,
+		logger:         logger,
+		dataDir:        *appDataDir,
+		sessionsURL:    sessionsURL,
+		onboardingURL:  onboardingURL,
+		serverErrors:   make(chan error, 1),
+		closeLog:       closeLog,
+		instanceLock:   instanceLock,
 	}
 
 	go func() {
@@ -264,15 +300,21 @@ func start(args []string) (result *application, err error) {
 }
 
 type application struct {
-	control       *controller.Controller
-	httpServer    *http.Server
-	logger        *log.Logger
-	dataDir       string
-	sessionsURL   string
-	onboardingURL string
-	instanceLock  *os.File
-	closeLog      func()
-	serverErrors  chan error
+	control        *controller.Controller
+	api            *api.Server
+	modelName      string
+	engineKind     string
+	httpServer     *http.Server
+	calls          *calls.Hub
+	processor      *autoprocess.Processor
+	stopProcessing context.CancelFunc
+	logger         *log.Logger
+	dataDir        string
+	sessionsURL    string
+	onboardingURL  string
+	instanceLock   *os.File
+	closeLog       func()
+	serverErrors   chan error
 }
 
 func (a *application) awaitStop() {
@@ -293,6 +335,8 @@ func (a *application) stop() error {
 	defer a.instanceLock.Close()
 	defer a.closeLog()
 	defer a.control.Close()
+	defer a.processor.Wait()
+	defer a.stopProcessing()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return a.httpServer.Shutdown(shutdownCtx)
@@ -300,7 +344,42 @@ func (a *application) stop() error {
 
 func (a *application) trayStatus() tray.Status {
 	state, detail := a.control.EngineStatus()
-	return tray.Status{Engine: string(state), Detail: detail}
+	status := tray.Status{
+		Engine:        string(state),
+		Detail:        detail,
+		Sessions:      a.control.Store().List(),
+		LastExtension: a.api.LastExtensionContact(),
+		Call:          a.calls.Current(),
+		Stop:          a.calls.Stopping(),
+	}
+	if status.Call != nil {
+		if folder, ok := a.control.Store().FolderForCallURL(status.Call.URL); ok {
+			status.CallFolder = folder.Name
+		}
+	}
+	return status
+}
+
+func (a *application) sendCallCommand(command calls.Command) {
+	if !a.calls.Send(command) {
+		a.logger.Printf("tray: call tab is gone, %s dropped", command)
+		return
+	}
+	a.logger.Printf("tray: %s sent to the call tab", command)
+}
+
+// pageBaseURL даёт страницам постоянное имя: *.localhost браузер сам ведёт на этот компьютер,
+// а у адреса своё хранилище страницы (папка, кеш темы) — одно и то же из трея и расширения.
+func pageBaseURL(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "http://" + listen
+	}
+	switch host {
+	case "", "127.0.0.1", "localhost", "::1":
+		host = "rechiv.localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 const logFileLimit = 5 << 20

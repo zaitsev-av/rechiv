@@ -27,7 +27,14 @@ const initialQueueCapacity = 10
 // ErrQueueBusy очередь переполнена, клиенту стоит повторить позже
 var ErrQueueBusy = errors.New("transcription queue is full")
 
+type AutoProcessor interface {
+	Needed(session *domain.Session) bool
+	Start(sessionID string)
+}
+
 type Controller struct {
+	AutoProcessor AutoProcessor
+
 	store     *store.Store
 	engine    engine.Engine
 	converter AudioConverter
@@ -61,6 +68,8 @@ type Controller struct {
 	finalizing map[string]bool
 
 	KeepAudio bool
+
+	summaryMu sync.Mutex
 }
 
 type EngineState string
@@ -368,6 +377,20 @@ func (c *Controller) RetryFailed(sessionID string) error {
 	return nil
 }
 
+func (c *Controller) WriteSummary(sessionID string, summary any, onlyIfAbsent bool) (bool, error) {
+	c.summaryMu.Lock()
+	defer c.summaryMu.Unlock()
+	path := c.SummaryPath(sessionID)
+	if onlyIfAbsent {
+		if _, err := os.Stat(path); err == nil {
+			return false, nil
+		} else if !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return true, WriteJSON(path, summary)
+}
+
 func (c *Controller) TranscriptPath(sessionID string) string {
 	return filepath.Join(c.store.SessionDir(sessionID), "result.json")
 }
@@ -376,8 +399,6 @@ func (c *Controller) SummaryPath(sessionID string) string {
 	return filepath.Join(c.store.SessionDir(sessionID), "summary.json")
 }
 
-// Transcript подставляет текущие имена из метаданных сессии:
-// в result.json они зафиксированы на момент финализации
 func (c *Controller) Transcript(sessionID string) (domain.Transcript, error) {
 	session, err := c.store.Get(sessionID)
 	if err != nil {
@@ -424,7 +445,14 @@ func (c *Controller) LiveTranscript(sessionID string) (*domain.LiveTranscript, e
 	if err != nil {
 		return nil, err
 	}
-	transcript, _ = buildTranscript(session, jobs, nil)
+
+	timeline, err := c.readVADTimeline(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	transcript, _ = buildTranscript(session, jobs, timeline)
+	transcript.Segments = mergeSegments(transcript.Segments, transcript.Participants)
 	return &domain.LiveTranscript{
 		Transcript:      transcript,
 		Status:          session.Status,
@@ -659,8 +687,12 @@ func (c *Controller) finalize(sessionID string) error {
 		)
 	}
 
-	if err := c.store.SetStatus(sessionID, domain.StatusCompleted, ""); err != nil {
+	pending := c.AutoProcessor != nil && c.AutoProcessor.Needed(session)
+	if err := c.store.Complete(sessionID, pending); err != nil {
 		return err
+	}
+	if pending {
+		c.AutoProcessor.Start(sessionID)
 	}
 
 	if !c.KeepAudio {

@@ -1,5 +1,4 @@
 import type { SttApiClient } from "@shared/api-client";
-import { getConfig, isLlmConfigured } from "@shared/config";
 import type { Folder, SessionInfo } from "@shared/types";
 import { formatDateTime, plural } from "@shared/utils";
 
@@ -727,6 +726,40 @@ export class HistoryFolders {
       applyNotice,
     );
 
+    const recording = element("section", "folder-settings-section");
+    const switchRow = (title: string, hint: string, initial: boolean) => {
+      let value = initial;
+      const row = element("div", "folder-settings-row");
+      const copy = element("span", "folder-field", title);
+      copy.append(element("small", "folder-hint", hint));
+      const toggle = button(
+        "",
+        () => {
+          value = !value;
+          toggle.setAttribute("aria-checked", String(value));
+        },
+        "folder-switch",
+      );
+      toggle.setAttribute("role", "switch");
+      toggle.setAttribute("aria-label", title);
+      toggle.setAttribute("aria-checked", String(value));
+      row.append(copy, toggle);
+      return { row, value: () => value };
+    };
+    const autoRecord = switchRow(
+      "Записывать автоматически",
+      folder.rules.length
+        ? "При входе в созвон по ссылке папки"
+        : "Сработает, когда у папки появится ссылка созвона",
+      folder.settings?.autoRecord ?? false,
+    );
+    const livePanel = switchRow(
+      "Показывать live-транскрипт",
+      "Панель поверх звонка при начале записи",
+      folder.settings?.livePanel ?? false,
+    );
+    recording.append(element("h3", "", "Запись"), autoRecord.row, livePanel.row);
+
     const summary = element("section", "folder-settings-section");
     const summaryRow = element("div", "folder-settings-row");
     const summaryCopy = element("span", "folder-field", "Делать саммари автоматически");
@@ -746,10 +779,11 @@ export class HistoryFolders {
     summaryToggle.disabled = true;
     summaryRow.append(summaryCopy, summaryToggle);
     summary.append(element("h3", "", "Саммари"), summaryRow);
-    void getConfig()
-      .then((config) => {
+    void this.api
+      .getLlmSettings()
+      .then((llm) => {
         if (!dialog.open) return;
-        llmConfigured = isLlmConfigured(config);
+        llmConfigured = llm.configured;
         summaryToggle.disabled = !llmConfigured;
         llmHint.hidden = llmConfigured;
         syncTemplate();
@@ -831,6 +865,8 @@ export class HistoryFolders {
             titleTemplate: input.value,
             retentionDays: enabled ? Number(days.value) : 0,
             autoSummary,
+            autoRecord: autoRecord.value(),
+            livePanel: livePanel.value(),
           });
           dialog.close();
         },
@@ -839,7 +875,7 @@ export class HistoryFolders {
         },
       );
     });
-    form.append(titleSection, summary, retention, actions);
+    form.append(titleSection, recording, summary, retention, actions);
     dialog.append(form);
     syncTemplate();
     syncRetention();

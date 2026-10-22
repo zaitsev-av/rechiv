@@ -64,6 +64,27 @@ describe("live transcript overlay", () => {
     expect(shadow?.querySelector(".feed img")).toBeNull();
   });
 
+  it("прокручивает ленту колёсиком, даже если страница отменяет его", async () => {
+    const blockPage = (event: Event) => event.preventDefault();
+    window.addEventListener("wheel", blockPage, { passive: false });
+    const overlay = showLiveTranscriptOverlay("session-live");
+    await waitForPoll();
+    const feed = overlay.host.shadowRoot!.querySelector<HTMLElement>("[data-role='feed']")!;
+    feed.scrollTop = 0;
+
+    const event = new WheelEvent("wheel", {
+      deltaY: 3,
+      deltaMode: 1,
+      bubbles: true,
+      cancelable: true,
+    });
+    feed.dispatchEvent(event);
+
+    expect(feed.scrollTop).toBe(48);
+    expect(event.defaultPrevented).toBe(true);
+    window.removeEventListener("wheel", blockPage);
+  });
+
   it("reuses and expands the existing panel when Show live is clicked again", () => {
     const first = showLiveTranscriptOverlay("session-live");
     first.host.shadowRoot?.querySelector<HTMLButtonElement>("[data-role='collapse']")?.click();
@@ -152,11 +173,11 @@ describe("предупреждение об именах на Телемосте
     vi.unstubAllGlobals();
   });
 
-  it("показывает, что имена собеседников придут после обработки", async () => {
+  it("объясняет, что имена собеседников подписываются с задержкой", async () => {
     mockLive(recording);
     const element = await notice();
     expect(element?.hidden).toBe(false);
-    expect(element?.textContent).toContain("итоговом транскрипте");
+    expect(element?.textContent).toContain("с задержкой");
   });
 
   it("молчит, когда собеседников нет: своё имя приходит сразу", async () => {

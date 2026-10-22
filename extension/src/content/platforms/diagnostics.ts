@@ -5,6 +5,8 @@
  * В файл payload пишется без обрезки: однажды обрезка slotsConfig испортила весь замер.
  */
 
+import { vadActive } from "./telemost/page";
+
 const PREFIX = "[Rechiv:diag]";
 const CONSOLE_PAYLOAD = 300;
 const RTP_SAMPLE_MS = 100;
@@ -567,28 +569,15 @@ function announce(): void {
         if (entry.type !== "ws" || entry.dir !== "in") continue;
         const payload = entry.payload;
         if (typeof payload !== "string" || !payload.includes('"slotsConfig"')) continue;
-        let message: {
-          slotsConfig?: {
-            slots?: {
-              vad?: boolean;
-              participant?: { participantId?: string };
-              participantVideoByMid?: { participantId?: string };
-            }[];
-          };
-        };
+        // biome-ignore lint/suspicious/noExplicitAny: сигналинг площадки не типизирован
+        let message: { slotsConfig?: any };
         try {
           message = JSON.parse(payload);
         } catch {
           continue;
         }
-        const slots = message.slotsConfig?.slots;
-        if (!Array.isArray(slots)) continue;
-        const active = slots
-          .filter((slot) => slot?.vad === true)
-          .map(
-            (slot) => slot.participant?.participantId ?? slot.participantVideoByMid?.participantId,
-          )
-          .filter((id): id is string => typeof id === "string");
+        if (!Array.isArray(message.slotsConfig?.slots)) continue;
+        const active = vadActive(message.slotsConfig);
         const previous = result.at(-1);
         if (previous && previous.active.join() === active.join()) continue;
         result.push({ at: entry.t as number, active });

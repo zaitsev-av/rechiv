@@ -1,13 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  dropLegacyTitle,
-  formatDateTime,
-  getErrorMessage,
-  getLegacyTitles,
-  plural,
-  retry,
-} from "../src/shared/utils";
-import { chromeMock } from "./setup";
+import { describe, expect, it, vi } from "vitest";
+import { formatDateTime, getErrorMessage, plural, retry } from "../src/shared/utils";
 
 describe("plural", () => {
   it("returns 'one' form for 1", () => {
@@ -37,42 +29,6 @@ describe("formatDateTime", () => {
     const result = formatDateTime(date);
     expect(result.date).toMatch(/\d{2}\.\d{2}\.\d{4}/);
     expect(result.time).toMatch(/\d{2}:\d{2}/);
-  });
-});
-
-describe("названия из старых версий", () => {
-  beforeEach(() => {
-    chromeMock.storage.local.get.mockResolvedValue({});
-    vi.mocked(chrome.storage.local.set).mockClear();
-  });
-
-  it("возвращает пустой объект, когда старых названий нет", async () => {
-    expect(await getLegacyTitles()).toEqual({});
-  });
-
-  it("читает сохранённые ранее названия", async () => {
-    chromeMock.storage.local.get.mockResolvedValue({ sessionTitles: { abc: "My Call" } });
-    expect((await getLegacyTitles()).abc).toBe("My Call");
-  });
-
-  it("удаляет перенесённое название", async () => {
-    chromeMock.storage.local.get.mockResolvedValue({
-      sessionTitles: { abc: "My Call", other: "Ещё звонок" },
-    });
-
-    await dropLegacyTitle("abc");
-
-    expect(chrome.storage.local.set).toHaveBeenCalledWith({
-      sessionTitles: { other: "Ещё звонок" },
-    });
-  });
-
-  it("ничего не пишет, если названия уже нет", async () => {
-    chromeMock.storage.local.get.mockResolvedValue({ sessionTitles: {} });
-
-    await dropLegacyTitle("abc");
-
-    expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 });
 

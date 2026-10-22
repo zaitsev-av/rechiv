@@ -3,9 +3,11 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -768,4 +770,45 @@ func TestCreateSessionFolderRule(t *testing.T) {
 	unmatched, err := c.CreateSession("https://meet.google.com/another")
 	require.NoError(t, err)
 	require.Empty(t, unmatched.FolderID)
+}
+
+// Во время записи лайв собирается как итог: имена по разметке речи и склейка
+// кусков одного говорящего, разрезанных по паузам.
+func TestLiveTranscriptUsesVADAndMerges(t *testing.T) {
+	controller, sessionStore := newTestController(t)
+	session, err := sessionStore.Create("https://telemost.yandex.ru/j/1")
+	require.NoError(t, err)
+	for index, item := range []struct {
+		offset float64
+		text   string
+	}{{0, "Давайте начнём"}, {2.5, "с плана на неделю."}} {
+		require.NoError(t, controller.saveJob(&Job{
+			SessionID:  session.SessionID,
+			SpeakerID:  "remote-room-mix",
+			ChunkIndex: index,
+			Offset:     item.offset,
+			Duration:   2,
+			Status:     JobCompleted,
+			Segments:   []JobSegment{{Text: item.text, Start: 0, End: 2}},
+			MetadataPath: filepath.Join(
+				sessionStore.SessionDir(session.SessionID), "jobs", fmt.Sprintf("remote-%d.json", index),
+			),
+		}))
+	}
+
+	live, err := controller.LiveTranscript(session.SessionID)
+	require.NoError(t, err)
+	require.False(t, live.IsFinal)
+	require.Len(t, live.Segments, 1, "без разметки куски одного потока тоже склеиваются")
+	require.Equal(t, "Давайте начнём с плана на неделю.", live.Segments[0].Text)
+
+	require.NoError(t, controller.SaveVADTimeline(session.SessionID, VADTimeline{
+		LocalParticipantID: "participant-local",
+		Participants:       []VADParticipant{{ParticipantID: "participant-a", Name: "Анна"}},
+		Events:             []VADEvent{{At: 0, Active: []string{"participant-a"}}},
+	}))
+	live, err = controller.LiveTranscript(session.SessionID)
+	require.NoError(t, err)
+	require.Len(t, live.Segments, 1)
+	require.Equal(t, "Анна", live.Segments[0].Speaker)
 }

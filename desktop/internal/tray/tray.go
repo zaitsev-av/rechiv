@@ -1,20 +1,42 @@
 package tray
 
-import "log"
+import (
+	"log"
+	"time"
+
+	"rechiv/desktop/internal/calls"
+	"rechiv/desktop/internal/domain"
+)
 
 type Status struct {
-	Engine string
-	Detail string
+	Engine        string
+	Detail        string
+	Sessions      []*domain.Session
+	LastExtension time.Time
+	Call          *calls.Call
+	Stop          calls.Stop
+	CallFolder    string
 }
 
-type Options struct {
-	Icon          []byte
+type Config struct {
 	Version       string
 	SessionsURL   string
 	OnboardingURL string
-	DataDir       string
-	Status        func() Status
-	Logger        *log.Logger
+	Model         string
+	Engine        string
+}
+
+type Options struct {
+	Config
+	Icon           []byte
+	RecordingIcon  []byte
+	ProcessingIcon []byte
+	StoppingIcon   []byte
+	IndicatorIcons map[Indicator][]byte
+	DataDir        string
+	Status         func() Status
+	Command        func(calls.Command)
+	Logger         *log.Logger
 }
 
 const (
@@ -22,33 +44,3 @@ const (
 	EngineStarting = "starting"
 	EngineFailed   = "error"
 )
-
-func statusLine(status Status) string {
-	switch status.Engine {
-	case EngineReady:
-		return "Готов к записи"
-	case EngineStarting:
-		return "Готовится к работе…"
-	case EngineFailed:
-		if status.Detail != "" {
-			return "Не удалось запустить: " + shorten(status.Detail)
-		}
-		return "Не удалось запустить"
-	default:
-		return "Состояние неизвестно"
-	}
-}
-
-func shorten(text string) string {
-	const limit = 60
-	if len(text) <= limit {
-		return text
-	}
-	trimmed := text[:limit]
-	for i := len(trimmed) - 1; i > limit/2; i-- {
-		if trimmed[i] == ' ' {
-			return trimmed[:i] + "…"
-		}
-	}
-	return trimmed + "…"
-}

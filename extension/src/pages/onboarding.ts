@@ -1,6 +1,6 @@
 import { createPageSttApiClient, type OnboardingState } from "@shared/api-client";
-import { DEFAULT_STT_URL } from "@shared/config";
-import { applySavedTheme, watchThemeChanges } from "@shared/theme";
+import { DESKTOP_URL } from "@shared/config";
+import { applyDesktopTheme, watchThemeChanges } from "@shared/theme";
 import { getErrorMessage } from "@shared/utils";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -22,7 +22,7 @@ const recheckButton = $<HTMLButtonElement>("#btn-recheck");
 // Установку расширения узнать можно только опросом.
 const POLL_INTERVAL_MS = 2000;
 
-const client = createPageSttApiClient(DEFAULT_STT_URL);
+const client = createPageSttApiClient(DESKTOP_URL);
 
 let pollTimer: number | undefined;
 let extensionPath = "";
@@ -183,7 +183,7 @@ recheckButton.addEventListener("click", () => {
 });
 
 watchThemeChanges();
-void applySavedTheme();
+void applyDesktopTheme();
 void loadState()
   .then(() => checkInstalled())
   .then(startPolling);

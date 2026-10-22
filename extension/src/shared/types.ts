@@ -1,4 +1,6 @@
 export interface FolderSettings {
+  autoRecord?: boolean;
+  livePanel?: boolean;
   autoSummary?: boolean;
   titleTemplate?: string;
   retentionDays?: number;
@@ -32,6 +34,22 @@ export interface SessionInfo {
   error?: string;
   uploadToken?: string;
   duration?: string;
+  /** Автообработка по настройкам папки; pending — desktop ещё делает саммари или тему. */
+  autoProcessing?: {
+    pending?: boolean;
+    summaryReady?: boolean;
+    summaryFailed?: boolean;
+    topicFailed?: boolean;
+  };
+  /** Саммари по кнопке: desktop делает его сам, страница только следит. */
+  summaryJob?: SummaryJob;
+  /** Только в ответе на создание: папка просит показать live-панель. */
+  livePanel?: boolean;
+}
+
+export interface SummaryJob {
+  running?: boolean;
+  error?: string;
 }
 
 export interface Participant {
