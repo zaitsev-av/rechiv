@@ -20,8 +20,15 @@ Before opening a pull request run from the repository root:
 task check
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, tests and builds for the extension and the
-Go application.
+CI (`.github/workflows/ci.yml`) checks the version, runs lint, tests and builds for the
+extension and the Go application.
+
+## Releases
+
+Bump the version with `task version:set -- 1.2.3`, commit, then push the `v1.2.3` tag:
+`.github/workflows/release.yml` builds `Rechiv.app` on a macOS runner and publishes the
+`.dmg` to GitHub Releases. Try a release first with a `v1.2.3-rc1` tag; it becomes a
+pre-release. When a source in `scripts/prefetch.lock` changes, update its sha256 too.
 
 ## Adding a platform
 
@@ -67,8 +74,15 @@ diagnostics belong in `.logs/`, which is ignored by git. Use made-up names in te
 task check
 ```
 
-CI (`.github/workflows/ci.yml`) запускает линтер, тесты и сборку расширения
-и Go-приложения.
+CI (`.github/workflows/ci.yml`) сверяет версию, запускает линтер, тесты и сборку
+расширения и Go-приложения.
+
+## Релизы
+
+Поднимите версию командой `task version:set -- 1.2.3`, закоммитьте и отправьте тег
+`v1.2.3`: `.github/workflows/release.yml` соберёт `Rechiv.app` на macOS-раннере и выложит
+`.dmg` в GitHub Releases. Сначала можно проверить релиз тегом `v1.2.3-rc1` — он станет
+пробным. Меняя источник в `scripts/prefetch.lock`, обновите и его sha256.
 
 ## Как добавить площадку
 

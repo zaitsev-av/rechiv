@@ -13,7 +13,7 @@ jobs:
     env:
       MODEL_BASE_URL: https://github.com/${{ github.repository }}/releases/download/model-gigaam-v3-e2e-ctc-int8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Версия
         id: version
@@ -21,21 +21,21 @@ jobs:
           echo "version=$(scripts/version.sh check "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
           echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: desktop/go.mod
           cache-dependency-path: desktop/go.sum
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: extension/package-lock.json
-      - uses: arduino/setup-task@v2
+      - uses: arduino/setup-task@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Исходники и модель меняются только вместе с prefetch.lock.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             build/prefetch
@@ -44,7 +44,7 @@ jobs:
       - run: scripts/prefetch.sh
 
       - id: python-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/python
           key: python-${{ runner.os }}-${{ hashFiles('scripts/prefetch.lock', 'scripts/build-python-runtime.sh') }}
@@ -52,7 +52,7 @@ jobs:
         run: scripts/build-python-runtime.sh
 
       - id: ffmpeg-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/ffmpeg
           key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/prefetch.lock', 'scripts/build-ffmpeg.sh') }}

@@ -11,7 +11,7 @@ Python/GigaAM worker в памяти.
 Требования:
 
 - macOS Apple Silicon или Linux amd64/arm64
-- Go 1.27.0 (`asdf install` в корне репозитория)
+- Go — версия из `desktop/go.mod` (сейчас 1.27.0)
 - Python 3.10–3.13 с зависимостями из `service/`
 - ffmpeg
 
@@ -23,9 +23,10 @@ task run
 ```
 
 Остальные команды доступны через `task --list`. Например, `task desktop:test`,
-`task desktop:test:race`, `task desktop:build` и `task dev`. Для принудительного
-выбора ускорителя можно использовать `task run DEVICE=mps` на macOS или
-`task run DEVICE=cuda` на Linux.
+`task desktop:test:race`, `task desktop:build` и `task dev`. По умолчанию GigaAM работает
+через ONNX Runtime (int8, CPU) из `build/onnx-int8`, который один раз собирается командой
+`task model`. Движок на torch с ускорителем включается так: `task run ENGINE=torch DEVICE=mps`
+на macOS или `DEVICE=cuda` на Linux; для него нужен torch в `service/.venv`.
 
 По умолчанию данные сохраняются в:
 

@@ -11,7 +11,7 @@ Python/GigaAM worker in memory.
 Requirements:
 
 - macOS Apple Silicon or Linux amd64/arm64
-- Go 1.27.0 (`asdf install` in the repository root)
+- Go — the version from `desktop/go.mod` (currently 1.27.0)
 - Python 3.10–3.13 with the dependencies from `service/`
 - ffmpeg
 
@@ -23,8 +23,10 @@ task run
 ```
 
 Other commands are available via `task --list`, for example `task desktop:test`,
-`task desktop:test:race`, `task desktop:build` and `task dev`. To force an accelerator,
-use `task run DEVICE=mps` on macOS or `task run DEVICE=cuda` on Linux.
+`task desktop:test:race`, `task desktop:build` and `task dev`. By default GigaAM runs through
+ONNX Runtime (int8, CPU) from `build/onnx-int8`, built once with `task model`. The torch engine
+with an accelerator is available as `task run ENGINE=torch DEVICE=mps` on macOS or
+`DEVICE=cuda` on Linux; it needs torch in `service/.venv`.
 
 By default data is stored in:
 
