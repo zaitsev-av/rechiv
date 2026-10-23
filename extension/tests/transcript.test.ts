@@ -412,6 +412,7 @@ describe("transcript page (module integration)", () => {
     button("summary-editor").dispatchEvent(new MouseEvent("dblclick"));
     expect(editorMock.editable).toBe(true);
     expect(button("btn-save-summary").classList.contains("hidden")).toBe(false);
+    expect(button("summary-editor").title).toBe("");
   });
 
   it("не сохраняет пустой документ ни кнопкой, ни сочетанием клавиш", async () => {

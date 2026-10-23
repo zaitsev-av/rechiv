@@ -31,7 +31,6 @@ type DiagApi = {
   stats(): Record<string, number>;
   stop(): void;
   audioSlots(count?: number): number;
-  slots(count?: number): number;
   audio(): Record<string, { samples: number; ssrc: number[] }>;
 };
 
@@ -148,45 +147,6 @@ describe("подмена audioSlotsCount", () => {
     diag().audioSlots(0);
 
     const original = setSlots(0);
-    openSocket().send(original);
-
-    expect(FakeWebSocket.sent[0]).toBe(original);
-  });
-
-  it("дополняет список слотов до запрошенного числа, не трогая видимые", async () => {
-    const { watchWebSockets } = await loadDiagnostics();
-    watchWebSockets();
-    diag().slots(3);
-    openSocket().send(setSlots(0));
-
-    const sent = JSON.parse(String(FakeWebSocket.sent[0]));
-    expect(sent.setSlots.slots).toEqual([
-      { width: 1584, height: 891 },
-      { width: 0, height: 0 },
-      { width: 0, height: 0 },
-    ]);
-    expect(sent.setSlots.audioSlotsCount).toBe(0);
-    expect(capture().find((entry) => entry.type === "slotCountPatched")).toMatchObject({
-      from: 1,
-      to: 3,
-    });
-  });
-
-  it("не укорачивает список, если сетка уже больше запрошенного", async () => {
-    const { watchWebSockets } = await loadDiagnostics();
-    watchWebSockets();
-    diag().slots(1);
-
-    const original = JSON.stringify({
-      uid: "u-1",
-      setSlots: {
-        slots: [
-          { width: 1584, height: 891 },
-          { width: 800, height: 450 },
-        ],
-        audioSlotsCount: 0,
-      },
-    });
     openSocket().send(original);
 
     expect(FakeWebSocket.sent[0]).toBe(original);

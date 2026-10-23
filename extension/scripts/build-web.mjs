@@ -72,6 +72,7 @@ for (const [sourceName, outputName] of htmlPages) {
   const source = await readFile(fromExtension(`src/pages/${sourceName}`), "utf8");
   const html = source
     .replaceAll('../shared/', 'shared/')
+    .replaceAll('../icons/', 'icons/')
     .replaceAll('href="history.html"', 'href="index.html"');
   await writeFile(resolve(outputDir, outputName), html);
 }

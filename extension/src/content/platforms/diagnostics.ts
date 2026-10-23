@@ -19,12 +19,6 @@ const MAX_RECORDS = 500_000;
 const DEFAULT_AUDIO_SLOTS = 0;
 
 /**
- * Клиент просит 12 слотов, и vad приходит только по ним. Больше слотов — непроверенная
- * гипотеза, включается из консоли: `__rechivDiag.slots(30)`.
- */
-const DEFAULT_SLOT_COUNT = 0;
-
-/**
  * Сборочный флаг (`RECHIV_DIAG=1`), а не константа: диагностика пишет имена участников
  * в консоль и не должна попасть в обычную сборку. Под vitest не определён.
  */
@@ -373,20 +367,17 @@ export function watchRpc(): void {
   };
 }
 
-/** Подменяет audioSlotsCount и число слотов в исходящем setSlots. */
+/** Подменяет audioSlotsCount в исходящем setSlots; число слотов просит адаптер Телемоста. */
 let desiredAudioSlots = DEFAULT_AUDIO_SLOTS;
-let desiredSlotCount = DEFAULT_SLOT_COUNT;
 
 type SetSlotsMessage = {
   setSlots?: {
     audioSlotsCount?: number;
-    slots?: { width?: number; height?: number }[];
   };
 };
 
 function patchSetSlots(payload: string): string {
-  const wanted = desiredAudioSlots > 0 || desiredSlotCount > 0;
-  if (!wanted || !payload.includes('"setSlots"')) return payload;
+  if (desiredAudioSlots === 0 || !payload.includes('"setSlots"')) return payload;
 
   let message: SetSlotsMessage;
   try {
@@ -397,27 +388,12 @@ function patchSetSlots(payload: string): string {
   const setSlots = message?.setSlots;
   if (!setSlots || typeof setSlots !== "object") return payload;
 
-  let changed = false;
-
   const originalAudio = setSlots.audioSlotsCount;
-  if (desiredAudioSlots > 0 && originalAudio !== desiredAudioSlots) {
-    setSlots.audioSlotsCount = desiredAudioSlots;
-    record("setSlotsPatched", { from: originalAudio ?? null, to: desiredAudioSlots });
-    console.log(PREFIX, `setSlots: audioSlotsCount ${originalAudio} → ${desiredAudioSlots}`);
-    changed = true;
-  }
-
-  // Только дополняем хвост: первые слоты задают видимую сетку.
-  const slots = setSlots.slots;
-  if (desiredSlotCount > 0 && Array.isArray(slots) && slots.length < desiredSlotCount) {
-    const from = slots.length;
-    while (slots.length < desiredSlotCount) slots.push({ width: 0, height: 0 });
-    record("slotCountPatched", { from, to: slots.length });
-    console.log(PREFIX, `setSlots: слотов ${from} → ${slots.length}`);
-    changed = true;
-  }
-
-  return changed ? JSON.stringify(message) : payload;
+  if (originalAudio === desiredAudioSlots) return payload;
+  setSlots.audioSlotsCount = desiredAudioSlots;
+  record("setSlotsPatched", { from: originalAudio ?? null, to: desiredAudioSlots });
+  console.log(PREFIX, `setSlots: audioSlotsCount ${originalAudio} → ${desiredAudioSlots}`);
+  return JSON.stringify(message);
 }
 
 function socketLabel(url: string | URL): string {
@@ -541,19 +517,6 @@ function announce(): void {
       }
       return desiredAudioSlots;
     },
-    /** Применится к следующему setSlots; вызвать его можно ресайзом окна. */
-    slots(count?: number): number {
-      if (typeof count === "number" && Number.isFinite(count) && count >= 0) {
-        desiredSlotCount = Math.floor(count);
-        console.log(
-          PREFIX,
-          desiredSlotCount === 0
-            ? "подмена числа слотов выключена"
-            : `просим ${desiredSlotCount} слотов начиная со следующего setSlots`,
-        );
-      }
-      return desiredSlotCount;
-    },
 
     tiles(): Record<string, string> {
       const result: Record<string, string> = {};
@@ -613,8 +576,7 @@ function announce(): void {
   );
   console.log(
     PREFIX,
-    "ручки: __rechivDiag.slots(30) — просить больше слотов сетки; " +
-      "__rechivDiag.audioSlots(8) — просить отдельные аудиослоты (сервер это уже игнорировал)",
+    "ручка: __rechivDiag.audioSlots(8) — просить отдельные аудиослоты (сервер это уже игнорировал)",
   );
   console.log(
     PREFIX,

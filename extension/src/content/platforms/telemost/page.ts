@@ -8,6 +8,12 @@ const PREFIX = "[Rechiv:telemost]";
 const SIGNALING_PATH = "/join";
 
 /**
+ * Клиент просит 7–12 слотов сетки, а vad сервер присылает только по ним: остальные
+ * собеседники остаются без разметки речи. 30 слотов показали всех на стендапе 22.10.
+ */
+const SLOT_COUNT = 30;
+
+/**
  * Телемост отдаёт удалённых участников одним аудиомиксом с постоянными SSRC/CSRC.
  * Поток получает имя, только когда удалённый участник один; разделение речи — по vad.
  */
@@ -51,6 +57,7 @@ export class TelemostPageAdapter implements PageAdapter {
       }
 
       send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+        if (this._isSignaling && typeof data === "string") data = requestMoreSlots(data);
         // hello виден только в исходящих.
         if (this._isSignaling) adapter._handlePayload(data);
         super.send(data);
@@ -368,4 +375,19 @@ function isSignalingUrl(url: string | URL): boolean {
   } catch {
     return false;
   }
+}
+
+/** Дополняет хвост списка слотов в setSlots: первые слоты задают видимую сетку. */
+export function requestMoreSlots(payload: string): string {
+  if (!payload.includes('"setSlots"')) return payload;
+  let message: { setSlots?: { slots?: unknown[] } };
+  try {
+    message = JSON.parse(payload);
+  } catch {
+    return payload;
+  }
+  const slots = message?.setSlots?.slots;
+  if (!Array.isArray(slots) || slots.length >= SLOT_COUNT) return payload;
+  while (slots.length < SLOT_COUNT) slots.push({ width: 0, height: 0 });
+  return JSON.stringify(message);
 }

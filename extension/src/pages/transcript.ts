@@ -264,6 +264,9 @@ function summaryHasChanges(): boolean {
 function updateSummaryEditing() {
   document.getElementById("summary-content")!.classList.toggle("editing", summaryEditing);
   document.getElementById("summary-toolbar")!.classList.toggle("hidden", !summaryEditing);
+  document.getElementById("summary-editor")!.title = summaryEditing
+    ? ""
+    : "Двойной клик — редактировать";
   for (const id of ["btn-regenerate", "btn-copy-summary", "btn-edit-summary"]) {
     document.getElementById(id)!.classList.toggle("hidden", summaryEditing);
   }

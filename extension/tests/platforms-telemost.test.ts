@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TelemostPageAdapter } from "../src/content/platforms/telemost/page";
+import { requestMoreSlots, TelemostPageAdapter } from "../src/content/platforms/telemost/page";
 
 const LOCAL_ID = "b42be91e-f9db-4f67-a9fc-fe582918ec3f";
 const REMOTE_ID = "1ecaeaa3-2a8d-432b-9292-80ba70d24912";
@@ -712,5 +712,31 @@ describe("атрибуция фрагмента", () => {
     adapter.startVadCapture(0);
 
     expect(adapter.attributeChunk(2_000, 2_000)).toBeNull();
+  });
+});
+
+describe("запрос слотов сетки", () => {
+  const setSlots = (slots: { width: number; height: number }[]) =>
+    JSON.stringify({ uid: "u-1", setSlots: { slots, audioSlotsCount: 0, key: 7 } });
+
+  it("дополняет хвост до 30 слотов, не трогая видимые", () => {
+    const sent = JSON.parse(requestMoreSlots(setSlots([{ width: 1584, height: 891 }])));
+
+    expect(sent.setSlots.slots).toHaveLength(30);
+    expect(sent.setSlots.slots[0]).toEqual({ width: 1584, height: 891 });
+    expect(sent.setSlots.slots[29]).toEqual({ width: 0, height: 0 });
+    expect(sent.setSlots.key).toBe(7);
+    expect(sent.uid).toBe("u-1");
+  });
+
+  it("не укорачивает большую сетку и не трогает другие сообщения", () => {
+    const big = setSlots(Array.from({ length: 31 }, () => ({ width: 10, height: 10 })));
+    const hello = JSON.stringify({ uid: "u-2", hello: {} });
+
+    expect(requestMoreSlots(big)).toBe(big);
+    expect(requestMoreSlots(hello)).toBe(hello);
+    expect(requestMoreSlots("не json, но со словом setSlots")).toBe(
+      "не json, но со словом setSlots",
+    );
   });
 });
