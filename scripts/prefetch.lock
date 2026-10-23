@@ -1,0 +1,11 @@
+# Исходники сборки .app: путь в build/, адрес, sha256.
+# Модель качается из релиза model-gigaam-v3-e2e-ctc-int8; {model} подставляет prefetch.sh.
+prefetch/cpython-arm64-darwin.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20260728/cpython-3.13.14%2B20260728-aarch64-apple-darwin-install_only_stripped.tar.gz aa2a054f5e04bde63ae199e3bb6bbb634e457423efd294842deeb1299e7e5932
+prefetch/ffmpeg-source.tar.xz https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz b6863adde98898f42602017462871b5f6333e65aec803fdd7a6308639c52edf3
+prefetch/wheels/flatbuffers-25.12.19-py2.py3-none-any.whl https://files.pythonhosted.org/packages/e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92/flatbuffers-25.12.19-py2.py3-none-any.whl 7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4
+prefetch/wheels/numpy-2.5.1-cp313-cp313-macosx_14_0_arm64.whl https://files.pythonhosted.org/packages/88/b3/3c28c558a09fc72100c646dac6d2fce8e834c471b0edca01a29996706117/numpy-2.5.1-cp313-cp313-macosx_14_0_arm64.whl 6165343f81b56ef8f514f396989e529b61d9dc709b99421b07e9f3e698e2287d
+prefetch/wheels/onnxruntime-1.28.0-cp313-cp313-macosx_14_0_arm64.whl https://files.pythonhosted.org/packages/9c/12/3807e2b17d9eb71d3cb78ed2ba76869b05c637c9b9d6112e636098b0c97a/onnxruntime-1.28.0-cp313-cp313-macosx_14_0_arm64.whl 31410f544674f534c2f27348af52ef81682ca9c8719154bf4d48f0ef23823b1e
+prefetch/wheels/packaging-26.2-py3-none-any.whl https://files.pythonhosted.org/packages/df/b2/87e62e8c3e2f4b32e5fe99e0b86d576da1312593b39f47d8ceef365e95ed/packaging-26.2-py3-none-any.whl 5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e
+prefetch/wheels/protobuf-7.35.1-cp310-abi3-macosx_10_9_universal2.whl https://files.pythonhosted.org/packages/10/03/8aeeb7458d22546bf64b5250ca1daeb5ff757d900e8e4a7476c6f0db843e/protobuf-7.35.1-cp310-abi3-macosx_10_9_universal2.whl 24f857477359a85c0c235261b8ba905fd51b2562f4a64ca1df5473f29850cbf6
+onnx-int8/v3_e2e_ctc.int8.onnx {model}/v3_e2e_ctc.int8.onnx 4583f4f6fe271991f7c42ea4d4c91bec47dcc02f1e42918423262738f859f584
+onnx-int8/v3_e2e_ctc.json {model}/v3_e2e_ctc.json b3133bd5da864ca565db26a82a015940eb1d3c7bd0116b6bb652638e4f01b288

@@ -197,6 +197,26 @@ tasks:
     cmds:
       - ./scripts/build-app.sh
 
+  desktop:package:
+    desc: Упаковать build/Rechiv.app в build/dist/Rechiv-<версия>-arm64.dmg
+    cmds:
+      - ./scripts/package-app.sh
+
+  prefetch:
+    desc: Скачать исходники сборки .app по scripts/prefetch.lock (модель — при заданном MODEL_BASE_URL)
+    cmds:
+      - ./scripts/prefetch.sh
+
+  version:
+    desc: Проверить, что VERSION совпадает с версией расширения
+    cmds:
+      - ./scripts/version.sh check
+
+  version:set:
+    desc: "Записать версию во все файлы: task version:set -- 1.2.3"
+    cmds:
+      - ./scripts/version.sh set {{.CLI_ARGS}}
+
   desktop:run:
     desc: Запустить Go-приложение с GigaAM worker
     dir: desktop

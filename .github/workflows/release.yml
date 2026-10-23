@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-15
+    env:
+      MODEL_BASE_URL: https://github.com/${{ github.repository }}/releases/download/model-gigaam-v3-e2e-ctc-int8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версия
+        id: version
+        run: |
+          echo "version=$(scripts/version.sh check "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Исходники и модель меняются только вместе с prefetch.lock.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/prefetch
+            build/onnx-int8
+          key: prefetch-${{ hashFiles('scripts/prefetch.lock') }}
+      - run: scripts/prefetch.sh
+
+      - id: python-cache
+        uses: actions/cache@v4
+        with:
+          path: build/python
+          key: python-${{ runner.os }}-${{ hashFiles('scripts/prefetch.lock', 'scripts/build-python-runtime.sh') }}
+      - if: steps.python-cache.outputs.cache-hit != 'true'
+        run: scripts/build-python-runtime.sh
+
+      - id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: build/ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/prefetch.lock', 'scripts/build-ffmpeg.sh') }}
+      - if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: scripts/build-ffmpeg.sh
+
+      - run: npm ci
+        working-directory: extension
+      - run: task desktop:app
+      - run: scripts/package-app.sh
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+
+      - name: Релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" build/dist/Rechiv-*.dmg build/dist/Rechiv-*.dmg.sha256 \
+            --title "Rechiv ${TAG#v}" --generate-notes $prerelease

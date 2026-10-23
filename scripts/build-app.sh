@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/build"
 APP="${APP:-$BUILD/Rechiv.app}"
-VERSION="${VERSION:-0.4.1}"
+VERSION="${VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION")}"
 
 RUNTIME="$BUILD/python"
 FFMPEG="$BUILD/ffmpeg"
