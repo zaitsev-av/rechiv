@@ -1,20 +1,52 @@
-# Rechiv
-
 [English](README.md) · **Русский**
+
+<p align="center">
+  <img src="desktop/assets/icon-256.png" width="96" height="96" alt="">
+</p>
+
+<h1 align="center">Rechiv</h1>
+
+<p align="center">Записывает и расшифровывает онлайн-созвоны прямо на вашем компьютере</p>
+
+<p align="center">
+  <a href="https://github.com/zaitsev-av/rechiv/releases"><b>Скачать для macOS (Apple Silicon)</b></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/zaitsev-av/rechiv/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zaitsev-av/rechiv?include_prereleases&sort=semver"></a>
+  <a href="https://github.com/zaitsev-av/rechiv/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zaitsev-av/rechiv/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/zaitsev-av/rechiv"></a>
+  <img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple">
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/transcript-dark.png">
+  <img alt="Транскрипт созвона с именами говорящих" src="docs/images/transcript-light.png">
+</picture>
 
 Rechiv — локальная запись, транскрибация и анализ онлайн-созвонов для macOS и Linux.
 Приложение живёт в строке меню, расширение браузера записывает звук созвона, а речь
 распознаётся на компьютере моделью GigaAM.
 
 Поддерживаются созвоны в Яндекс Телемосте (`telemost.yandex.ru`), WB Stream
-(`stream.wb.ru`) и Google Meet (`meet.google.com`); архитектура позволяет добавлять другие платформы независимо
-от локального движка и хранилища.
+(`stream.wb.ru`) и Google Meet (`meet.google.com`).
 
-Расширение Rechiv записывает WebRTC-аудио созвона (в WB Stream и Google Meet — отдельно по
-участникам, в Телемосте — общим потоком собеседников и отдельно свой микрофон), Go-приложение
-управляет сессиями и очередью, а долгоживущий Python-воркер распознаёт речь моделью GigaAM
-(ONNX, int8, на CPU).
-Транскрипты и аудио не отправляются во внешний STT-сервис.
+<table>
+  <tr>
+    <td width="50%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/history-dark.png">
+  <img alt="История созвонов с папками" src="docs/images/history-light.png">
+</picture>
+    </td>
+    <td width="50%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/summary-dark.png">
+  <img alt="Саммари созвона" src="docs/images/summary-light.png">
+</picture>
+    </td>
+  </tr>
+</table>
 
 ## Возможности
 
@@ -47,98 +79,10 @@ Rechiv — локальная запись, транскрибация и ана
 Chrome, Edge, Brave, Vivaldi и другие браузеры на Chromium. Для саммари укажите в
 настройках адрес, модель и токен OpenAI-совместимого LLM.
 
-## Требования для разработки
-
-- macOS на Apple Silicon или современный Linux x86-64/ARM64;
-- Go — версия из `desktop/go.mod` (сейчас 1.27.0);
-- Python 3.10–3.13;
-- Node.js 22+;
-- [Task](https://taskfile.dev/);
-- FFmpeg;
-- браузер на Chromium.
-
-Собранное приложение содержит модель GigaAM, сеть для распознавания не нужна. Для разработки
-модель один раз собирается командой `task model`: она скачивает веса GigaAM, экспортирует их в ONNX
-и квантует в int8 в `build/onnx-int8`.
-
-## Запуск для разработки
-
-Все команды выполняются из корня проекта:
-
-```bash
-task doctor
-task setup
-task run
-```
-
-`task setup` создаёт `service/.venv` и устанавливает зависимости расширения.
-`task run` запускает локальное Go-приложение на `127.0.0.1:9876`. Его страницы открываются
-по адресу `http://rechiv.localhost:9876/`: любое имя `*.localhost` браузер сам ведёт на этот компьютер.
-
-Для разработки расширения и Go-приложения одновременно:
-
-```bash
-task dev
-```
-
-После первой сборки откройте `chrome://extensions`, включите режим разработчика и
-выберите «Загрузить распакованное расширение» → `extension/dist`.
-
-## Сборка для Linux
-
-Linux amd64 и расширение:
-
-```bash
-task setup
-task build:linux
-```
-
-Результат:
-
-```text
-build/rechiv-linux-amd64
-extension/dist/
-```
-
-Бинарник сам находит интерпретатор из `service/.venv` — рядом с собой и выше по
-дереву проекта. Если venv лежит в другом месте, укажите его явно:
-
-```bash
-build/rechiv-linux-amd64 -python /path/to/venv/bin/python
-```
-
-Готовность движка видна сразу после старта: `GET /health` возвращает поле
-`engine` со статусом `starting`, `ready` или `error` и причиной ошибки.
-
-Для Linux ARM64:
-
-```bash
-task build:linux LINUX_ARCH=arm64
-```
-
-`task build` собирает сразу macOS arm64, Linux amd64 и расширение.
-
-## Сборка Rechiv.app
-
-`Rechiv.app` для macOS Apple Silicon включает Python-рантайм, модель, ffmpeg, веб-интерфейс
-и расширение:
-
-```bash
-task prefetch          # скачать исходники по scripts/prefetch.lock со сверкой sha256
-task desktop:python-runtime
-task desktop:ffmpeg
-task desktop:app       # build/Rechiv.app
-task desktop:package   # build/dist/Rechiv-<версия>-arm64.dmg и .sha256
-```
-
-Модель для `task prefetch` берётся из релиза `model-gigaam-v3-e2e-ctc-int8`
-(`MODEL_BASE_URL=https://github.com/zaitsev-av/rechiv/releases/download/model-gigaam-v3-e2e-ctc-int8`)
-или собирается локально командой `task model`.
-
-Версия приложения хранится в `VERSION`, `task version` сверяет её с расширением, а
-`task version:set -- 1.2.3` записывает новую во все файлы. Тег `v1.2.3` запускает
-`.github/workflows/release.yml`: сборку на macOS-раннере и релиз с `.dmg`; тег с суффиксом
-(`v1.2.3-rc1`) создаёт пробный релиз.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/onboarding-dark.png">
+  <img alt="Подключение расширения при первом запуске" src="docs/images/onboarding-light.png" width="640">
+</picture>
 
 ## Использование
 
@@ -166,137 +110,30 @@ GigaAM загружается сразу при старте записи — к
 
 При подключённом LLM подстановка `{topic}` добавляет короткую тему созвона на русском после готовности транскрипта; до этого тема и разделители вокруг неё не выводятся. В настройках папки можно включить автоматическое саммари. Desktop делает одну попытку после готовности транскрипта, сохраняет существующее саммари (включая ручные правки), доделывает прерванную обработку после перезапуска, а расширение сообщает результат в уведомлении о готовности; саммари можно сделать вручную на странице транскрипта. Без подключённого LLM чип темы и переключатель саммари неактивны, сохранённые настройки папки остаются.
 
-## Архитектура
+## Как это устроено
 
-```text
-Телемост / WB Stream / Google Meet
-    │ WebRTC-аудио
-    ▼
-Rechiv Extension
-    │ WebM/Opus фрагменты
-    ▼
-Go API · 127.0.0.1:9876
-    │ FFmpeg → WAV 16 kHz mono
-    ▼
-Последовательная очередь Go
-    │ JSON Lines через stdin/stdout
-    ▼
-Python worker · GigaAM
-    │ сегменты текста и таймкоды
-    ▼
-Go storage → live/result/summary
+```mermaid
+flowchart TD
+  call["Созвон в браузере<br/>Телемост · WB Stream · Google Meet"] -->|звук со страницы| ext["Расширение Rechiv"]
+  ext -->|аудиофрагменты| app["Rechiv в строке меню<br/>распознаёт речь моделью GigaAM"]
+  app --> notes["Транскрипт и саммари<br/>на вашем компьютере"]
+  notes -.->|только текст, если вы настроили| llm["Ваш LLM"]
+  notes --> mcp["Агенты через MCP"]
 ```
 
-Go отвечает за HTTP API, безопасность, сессии, файлы, очередь, повторы,
-финализацию и восстановление. Python отвечает только за загрузку GigaAM и
-распознавание подготовленного WAV-файла.
+Расширение пишет звук прямо со страницы созвона, бот в созвон не заходит. Имена
+говорящих берутся из самой площадки, а речь распознаёт модель GigaAM на вашем компьютере.
 
-Подробности протокола описаны в [`desktop/README.ru.md`](desktop/README.ru.md).
+## Приватность
 
-## Локальные данные и токены
-
-Данные хранятся в:
-
-```text
-macOS: ~/Library/Application Support/Rechiv
-Linux: ~/.rechiv
-```
-
-API слушает только loopback-интерфейс. Все рабочие методы защищены локальным
-Bearer-токеном установки, который расширение получает автоматически.
-
-Для ручной диагностики:
-
-```bash
-task desktop:token
-
-curl -H "Authorization: Bearer $(task --silent desktop:token)" \
-  http://127.0.0.1:9876/sessions
-```
-
-Локальный токен приложения не является токеном внешнего LLM. Адрес, модель и токен LLM
-задаются в настройках Rechiv и хранятся в desktop: токен — в Keychain macOS (на других системах —
-в файле, доступном только владельцу), запросы к LLM делает само приложение. Настройку из старых
-версий расширения desktop забирает один раз, после чего она стирается из браузера.
-
-## Основные команды
-
-```bash
-task doctor          # проверить инструменты
-task setup           # установить Python- и Node.js-зависимости
-task run             # запустить приложение
-task dev             # приложение + watch-сборка расширения
-task test            # запустить все тесты
-task lint            # запустить проверки кода
-task build           # собрать macOS, Linux и расширение
-task build:macos     # собрать macOS arm64 и расширение
-task build:linux     # собрать Linux amd64 и расширение
-task prefetch        # скачать исходники сборки .app
-task desktop:app     # собрать Rechiv.app
-task desktop:package # упаковать .app в .dmg
-task version         # сверить версию приложения и расширения
-task icons           # пересобрать иконки из SVG
-task check           # lint + test + build
-task clean           # удалить сборки и кэши
-task clean:all       # удалить также .venv и node_modules
-task --list          # показать все команды
-```
-
-Параметры запуска можно переопределять:
-
-```bash
-task run THREADS=8
-task run ENGINE=torch DEVICE=mps   # GigaAM на torch вместо ONNX; нужен torch в service/.venv
-task setup PYTHON=python3.12
-task run LISTEN=127.0.0.1:9876
-task build:linux LINUX_ARCH=arm64
-```
-
-## Структура репозитория
-
-```text
-rechiv/
-├── desktop/
-│   ├── assets/                 # SVG, PNG и macOS iconset
-│   ├── cmd/rechiv/             # приложение и команда mcp
-│   ├── engine/worker.py        # JSONL worker для GigaAM
-│   └── internal/               # API, очередь, storage, security
-├── extension/
-│   ├── src/background/         # service worker
-│   ├── src/content/            # WebRTC capture, адаптеры площадок, live-панель
-│   ├── src/pages/              # созвоны, транскрипт, настройки (отдаёт desktop)
-│   ├── src/popup/              # popup: состояние и запись
-│   └── tests/
-├── service/
-│   ├── rechiv_engine/models/   # GigaAM на ONNX и torch, нарезка по паузам
-│   ├── tools/                  # экспорт модели в ONNX и квантование
-│   ├── tests/
-│   └── pyproject.toml
-├── scripts/                    # сборка рантайма, ffmpeg, .app, .dmg и версия
-├── .github/workflows/
-│   ├── ci.yml                  # тесты расширения и Go
-│   └── release.yml             # релиз .dmg по тегу
-├── VERSION
-└── Taskfile.yml
-```
-
-## API
-
-Основные endpoints:
-
-- `GET /health`, `GET /auth/token`;
-- `POST /sessions`, `GET /sessions`, `GET|DELETE /sessions/{id}`;
-- `POST /sessions/{id}/chunks`, `/speakers`, `/vad`, `/finish`, `/retry`;
-- `PUT /sessions/{id}/title`, `/topic`, `/folder`;
-- `GET /sessions/{id}/live`;
-- `GET|PUT /sessions/{id}/transcript`;
-- `GET|PUT /sessions/{id}/summary`, `POST /sessions/{id}/summary/generate`;
-- `GET|POST /folders`, `PATCH|DELETE /folders/{id}`, `PUT /folders/{id}/settings`,
-  правила, названия и срок хранения папки;
-- `GET|PUT /settings/llm`, `POST /settings/llm/check`, `GET|PUT /settings/appearance`;
-- `GET /onboarding/state`;
-- `POST /calls/poll`;
-- `GET /events`.
+- Звук записывается и распознаётся на вашем компьютере, во внешний сервис распознавания
+  ничего не уходит.
+- Записи лежат в `~/Library/Application Support/Rechiv` (на Linux — `~/.rechiv`).
+- Наружу уходит только текст транскрипта и только в LLM, который вы сами указали, — когда
+  делается саммари или тема созвона. Токен LLM хранится в Keychain macOS.
+- Приложение слушает только `127.0.0.1`, его API закрыт локальным токеном.
+- Подключая MCP, вы открываете агенту свои записи: прочитанное он отправляет своему LLM.
+- Предупреждайте участников о записи: правила зависят от страны и компании.
 
 ## MCP: подключение агента
 
@@ -337,9 +174,45 @@ MCP только читает записи. Добавляя сервер в к�
 - для Linux собирается только бинарник, пакеты `.deb`, `.rpm` и AppImage не собираются;
 - для генерации саммари требуется доступ к внешнему LLM API.
 
+## Вопросы
+
+**macOS не открывает приложение: «не удаётся проверить разработчика».**
+Сборка подписана без Developer ID. Откройте `Rechiv.app` через контекстное меню → «Открыть»
+или разрешите в «Системные настройки → Конфиденциальность и безопасность». Если не помогло:
+`xattr -dr com.apple.quarantine /Applications/Rechiv.app`.
+
+**В меню Rechiv нет «Начать запись».**
+Пункт появляется, пока открыта вкладка созвона и расширение подключено. Проверьте, что
+расширение включено на странице расширений браузера, и обновите вкладку созвона.
+
+**После обновления Rechiv расширение просит обновиться.**
+Нажмите ↻ у Rechiv на странице расширений браузера и обновите вкладку созвона.
+
+**В Телемосте у реплики «Неизвестный участник».**
+Телемост отдаёт всех собеседников одним звуковым потоком, а говорящего Rechiv определяет
+по сигналингу площадки. Когда два человека говорят одновременно, имя не ставится, чтобы
+не приписать реплику не тому.
+
+**Кнопка саммари неактивна.**
+Укажите в настройках адрес, модель и токен OpenAI-совместимого LLM; кнопка «Проверить»
+покажет, отвечает ли модель.
+
+## Разработка
+
+```bash
+task setup
+task model
+task run
+```
+
+Требования, сборка `.app` и релизы, архитектура, API и структура репозитория —
+в [docs/development.ru.md](docs/development.ru.md).
+
 ## Документация
 
-Документация ведётся на двух языках; правила — в [CONTRIBUTING.md](CONTRIBUTING.md).
+- [Разработка](docs/development.ru.md): сборка, релизы, архитектура, API.
+- [Desktop-приложение](desktop/README.ru.md): очередь, движок и протокол с Python.
+- [CONTRIBUTING.md](CONTRIBUTING.md): правила изменений; документация ведётся на двух языках.
 
 ## Лицензия
 

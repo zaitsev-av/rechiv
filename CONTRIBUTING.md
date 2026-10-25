@@ -5,7 +5,8 @@
 ## Documentation in two languages
 
 Every document exists in English and Russian: `README.md` / `README.ru.md`,
-`desktop/README.md` / `desktop/README.ru.md`. Each file starts with a language switcher.
+`desktop/README.md` / `desktop/README.ru.md`, `docs/development.md` / `docs/development.ru.md`.
+Each file starts with a language switcher.
 
 - Change both versions in the same commit or pull request. A change that touches only
   one language is incomplete.
@@ -59,7 +60,8 @@ diagnostics belong in `.logs/`, which is ignored by git. Use made-up names in te
 ## Документация на двух языках
 
 Каждый документ существует на английском и русском: `README.md` / `README.ru.md`,
-`desktop/README.md` / `desktop/README.ru.md`. В начале каждого файла — переключатель языков.
+`desktop/README.md` / `desktop/README.ru.md`, `docs/development.md` / `docs/development.ru.md`.
+В начале каждого файла — переключатель языков.
 
 - Меняйте обе версии в одном коммите или pull request. Изменение только одного языка
   считается незавершённым.
