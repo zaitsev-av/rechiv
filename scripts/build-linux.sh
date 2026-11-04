@@ -7,11 +7,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/build"
 VERSION="${VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION")}"
+RELEASE_VERSION="${RELEASE_VERSION:-$VERSION}"
 PLATFORM=linux-x86_64
-NAME="rechiv-$VERSION-$PLATFORM"
+NAME="rechiv-$RELEASE_VERSION-$PLATFORM"
 OUT="$BUILD/$NAME"
 DIST="$BUILD/dist"
-ARCHIVE="$DIST/Rechiv-$VERSION-$PLATFORM.tar.gz"
+ARCHIVE="$DIST/Rechiv-$RELEASE_VERSION-$PLATFORM.tar.gz"
 
 RUNTIME="$BUILD/python"
 FFMPEG="$BUILD/ffmpeg"
@@ -58,7 +59,7 @@ python3 "$ROOT/scripts/third-party-notices.py" "$RESOURCES" "$OUT/THIRD_PARTY_NO
   || fail "не собрал THIRD_PARTY_NOTICES.txt"
 
 cat > "$OUT/README.txt" <<README
-Rechiv $VERSION for Linux x86-64
+Rechiv $RELEASE_VERSION for Linux x86-64
 
 Run:
   ./rechiv

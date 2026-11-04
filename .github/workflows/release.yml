@@ -78,16 +78,17 @@ jobs:
       - run: npm ci
         working-directory: extension
 
+      # Приложение и расширение несут версию из VERSION; суффикс тега (-rc1) — только в именах файлов.
       - if: matrix.platform == 'darwin-arm64'
         run: |
           task desktop:app
-          scripts/package-app.sh
+          VERSION="$RELEASE_VERSION" scripts/package-app.sh
         env:
-          VERSION: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.tag }}
       - if: matrix.platform == 'linux-x86_64'
         run: task desktop:linux
         env:
-          VERSION: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.tag }}
 
       - uses: actions/upload-artifact@v7
         with:
