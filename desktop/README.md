@@ -65,9 +65,11 @@ The recognition queue is sequential, so when it falls behind, the worker takes t
 freshest chunk of the recording: the live panel is for the current conversation, and the
 backlog is still processed before finalisation. While the queue is short it is strict FIFO.
 
-The Python engine additionally splits the received WAV on pauses and recognises every
-speech interval separately. This gives real timestamps instead of one mark per chunk,
-and silence never reaches the model.
+The Python engine additionally finds speech intervals in the received WAV, so silence
+never reaches the model. Neighbouring intervals with pauses up to 2 s are joined into a
+piece of up to 20 s and recognised as a whole: cutting at every pause lost word edges and
+context. Words with timings from the CTC frames are distributed back over the intervals,
+so segments keep real timestamps and each carries `words`.
 
 On start the application checks the worker with a `ping` command and logs the chosen
 interpreter and `worker.py`. The result is available in `GET /health` in the `engine`

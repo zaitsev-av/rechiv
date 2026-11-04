@@ -88,6 +88,12 @@ task desktop:app       # build/Rechiv.app
 task desktop:package   # build/dist/Rechiv-<version>-arm64.dmg and .sha256
 ```
 
+`task desktop:app` builds `THIRD_PARTY_NOTICES.txt` with `scripts/third-party-notices.py` from what
+went into the bundle: Python wheels, Go modules, npm packages and the ffmpeg source; texts missing
+from the build live in `licenses/`. A component without a license text stops the build.
+`task desktop:package` puts the file into the `.dmg` and places a copy and the ffmpeg source next to
+the image: the release publishes them along with the `.dmg`, as the LGPL requires.
+
 `task prefetch` takes the model from the `model-gigaam-v3-e2e-ctc-int8` release
 (`MODEL_BASE_URL=https://github.com/zaitsev-av/rechiv/releases/download/model-gigaam-v3-e2e-ctc-int8`);
 alternatively build it locally with `task model`.
@@ -197,7 +203,8 @@ rechiv/
 │   ├── tools/                  # model export to ONNX and quantization
 │   ├── tests/
 │   └── pyproject.toml
-├── scripts/                    # runtime, ffmpeg, .app and .dmg builds, versioning
+├── scripts/                    # runtime, ffmpeg, .app and .dmg builds, licenses, versioning
+├── licenses/                   # license texts missing from the build
 ├── .github/workflows/
 │   ├── ci.yml                  # extension and Go tests
 │   └── release.yml             # .dmg release on a tag

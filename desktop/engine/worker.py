@@ -87,7 +87,15 @@ def main() -> int:
                 {
                     "id": request_id,
                     "segments": [
-                        {"text": segment.text, "start": segment.start, "end": segment.end}
+                        {
+                            "text": segment.text,
+                            "start": segment.start,
+                            "end": segment.end,
+                            "words": [
+                                {"text": w.text, "start": w.start, "end": w.end}
+                                for w in segment.words
+                            ],
+                        }
                         for segment in segments
                     ],
                 }

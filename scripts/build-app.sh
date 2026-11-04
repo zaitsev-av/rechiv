@@ -63,6 +63,10 @@ if command -v iconutil >/dev/null 2>&1 && [ -d "$ROOT/desktop/assets/Rechiv.icon
   iconutil -c icns "$ROOT/desktop/assets/Rechiv.iconset" -o "$RESOURCES/Rechiv.icns"
 fi
 
+printf 'Собираю уведомления о лицензиях…\n'
+python3 "$ROOT/scripts/third-party-notices.py" "$APP" "$RESOURCES/THIRD_PARTY_NOTICES.txt" \
+  || fail "не собрал THIRD_PARTY_NOTICES.txt"
+
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

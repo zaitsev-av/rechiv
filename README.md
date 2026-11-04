@@ -219,4 +219,8 @@ Requirements, building the `.app` and releases, architecture, API and repository
 
 [MIT](LICENSE).
 
-The summary editor uses [Tiptap](https://github.com/ueberdosis/tiptap) (MIT), including its official Markdown extension.
+The app bundles third-party components under their own licenses: Python, FFmpeg (LGPL-2.1),
+ONNX Runtime, NumPy, the GigaAM model (MIT), Go libraries and the
+[Tiptap](https://github.com/ueberdosis/tiptap) editor (MIT). The full list with license texts is in
+`THIRD_PARTY_NOTICES.txt` in the `.dmg`, inside `Rechiv.app/Contents/Resources/` and in every
+release, next to the FFmpeg source the binary is built from.

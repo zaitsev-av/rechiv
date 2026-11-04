@@ -88,6 +88,12 @@ task desktop:app       # build/Rechiv.app
 task desktop:package   # build/dist/Rechiv-<версия>-arm64.dmg и .sha256
 ```
 
+`task desktop:app` собирает `THIRD_PARTY_NOTICES.txt` скриптом `scripts/third-party-notices.py`
+из того, что попало в бандл: колёса Python, модули Go, пакеты npm, исходники ffmpeg; недостающие
+тексты лежат в `licenses/`. Компонент без текста лицензии останавливает сборку.
+`task desktop:package` кладёт файл в `.dmg`, а рядом с образом — его копию и исходники ffmpeg:
+релиз выкладывает их вместе с `.dmg`, как требует LGPL.
+
 Модель для `task prefetch` берётся из релиза `model-gigaam-v3-e2e-ctc-int8`
 (`MODEL_BASE_URL=https://github.com/zaitsev-av/rechiv/releases/download/model-gigaam-v3-e2e-ctc-int8`)
 или собирается локально командой `task model`.
@@ -197,7 +203,8 @@ rechiv/
 │   ├── tools/                  # экспорт модели в ONNX и квантование
 │   ├── tests/
 │   └── pyproject.toml
-├── scripts/                    # сборка рантайма, ffmpeg, .app, .dmg и версия
+├── scripts/                    # сборка рантайма, ffmpeg, .app, .dmg, лицензий и версия
+├── licenses/                   # тексты лицензий, которых нет в сборке
 ├── .github/workflows/
 │   ├── ci.yml                  # тесты расширения и Go
 │   └── release.yml             # релиз .dmg по тегу

@@ -74,4 +74,5 @@ jobs:
           prerelease=""
           case "$TAG" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$TAG" build/dist/Rechiv-*.dmg build/dist/Rechiv-*.dmg.sha256 \
+            build/dist/THIRD_PARTY_NOTICES.txt build/dist/ffmpeg-*.tar.xz \
             --title "Rechiv ${TAG#v}" --generate-notes $prerelease

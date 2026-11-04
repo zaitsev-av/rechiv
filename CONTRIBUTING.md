@@ -29,7 +29,8 @@ extension and the Go application.
 Bump the version with `task version:set -- 1.2.3`, commit, then push the `v1.2.3` tag:
 `.github/workflows/release.yml` builds `Rechiv.app` on a macOS runner and publishes the
 `.dmg` to GitHub Releases. Try a release first with a `v1.2.3-rc1` tag; it becomes a
-pre-release. When a source in `scripts/prefetch.lock` changes, update its sha256 too.
+pre-release. When a source in `scripts/prefetch.lock` changes, update its sha256 too. A new
+dependency without a license file stops `task desktop:app`: put its license text into `licenses/`.
 
 ## Adding a platform
 
@@ -84,7 +85,8 @@ CI (`.github/workflows/ci.yml`) сверяет версию, запускает 
 Поднимите версию командой `task version:set -- 1.2.3`, закоммитьте и отправьте тег
 `v1.2.3`: `.github/workflows/release.yml` соберёт `Rechiv.app` на macOS-раннере и выложит
 `.dmg` в GitHub Releases. Сначала можно проверить релиз тегом `v1.2.3-rc1` — он станет
-пробным. Меняя источник в `scripts/prefetch.lock`, обновите и его sha256.
+пробным. Меняя источник в `scripts/prefetch.lock`, обновите и его sha256. Новая зависимость
+без файла лицензии остановит `task desktop:app`: положите её текст в `licenses/`.
 
 ## Как добавить площадку
 

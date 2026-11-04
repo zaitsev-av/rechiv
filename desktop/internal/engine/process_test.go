@@ -33,6 +33,9 @@ func TestProcessProtocol(t *testing.T) {
 	if len(segments) != 1 || segments[0].Text != "готово" {
 		t.Fatalf("segments = %#v", segments)
 	}
+	if words := segments[0].Words; len(words) != 1 || words[0] != (Word{Text: "готово", Start: 0.3, End: 0.7}) {
+		t.Fatalf("words = %#v", words)
+	}
 }
 
 func TestProcessPing(t *testing.T) {
@@ -114,6 +117,7 @@ func TestProcessHelper(t *testing.T) {
 			ID: request.ID,
 			Segments: []Segment{{
 				Text: "готово", Start: 0.2, End: 0.8,
+				Words: []Word{{Text: "готово", Start: 0.3, End: 0.7}},
 			}},
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(response); err != nil {

@@ -218,4 +218,8 @@ task run
 
 [MIT](LICENSE).
 
-Редактор саммари использует [Tiptap](https://github.com/ueberdosis/tiptap) (MIT), включая официальное расширение Markdown.
+Приложение включает сторонние компоненты со своими лицензиями: Python, FFmpeg (LGPL-2.1),
+ONNX Runtime, NumPy, модель GigaAM (MIT), библиотеки Go и редактор
+[Tiptap](https://github.com/ueberdosis/tiptap) (MIT). Полный список и тексты лицензий — в
+`THIRD_PARTY_NOTICES.txt` в образе `.dmg`, внутри `Rechiv.app/Contents/Resources/` и в каждом
+релизе. Там же лежат исходники FFmpeg, из которых собран бинарник.

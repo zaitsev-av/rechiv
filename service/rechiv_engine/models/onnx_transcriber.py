@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import onnxruntime as ort
 
-from .transcription import Segment, _read_mono_pcm, _SegmentingTranscriber
+from .transcription import Segment, Word, _read_mono_pcm, _SegmentingTranscriber
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +187,44 @@ def _decode_ctc(
     return texts
 
 
+def _ctc_words(
+    log_probs: np.ndarray,
+    encoded_length: int,
+    blank_id: int,
+    pieces: tuple[str, ...],
+    duration: float,
+) -> list[Word]:
+    """Слова одной записи с таймингами по кадрам CTC; текст совпадает с _decode_ctc."""
+    labels = np.asarray(log_probs).argmax(axis=-1)
+    steps = max(1, min(int(encoded_length), labels.shape[0]))
+    frame_sec = duration / steps
+    chars: list[tuple[str, int]] = []
+    previous = blank_id
+    for frame in range(steps):
+        token = int(labels[frame])
+        if token != blank_id and token != previous:
+            for char in pieces[token].replace("▁", " "):
+                chars.append((char, frame))
+        previous = token
+
+    words: list[Word] = []
+    current: list[tuple[str, int]] = []
+    for char, frame in [*chars, (" ", -1)]:
+        if not char.isspace():
+            current.append((char, frame))
+            continue
+        if current:
+            # Пунктуация приходит с опозданием, границы слова — по буквам и цифрам.
+            frames = [f for c, f in current if c.isalnum()] or [f for _, f in current]
+            words.append(Word(
+                text="".join(c for c, _ in current),
+                start=round(min(frames) * frame_sec, 3),
+                end=round((max(frames) + 1) * frame_sec, 3),
+            ))
+            current = []
+    return words
+
+
 class OnnxTranscriber(_SegmentingTranscriber):
     def __init__(self, model_dir: str, num_threads: int = 6):
         if num_threads <= 0:
@@ -263,6 +301,22 @@ class OnnxTranscriber(_SegmentingTranscriber):
         )
 
     def _transcribe_file(self, path: Path) -> str | None:
+        log_probs, encoded_lengths, _ = self._run(path)
+        return _decode_ctc(
+            log_probs, encoded_lengths, self._blank_id, self._pieces
+        )[0]
+
+    def _transcribe_words(self, path: Path) -> list[Word]:
+        log_probs, encoded_lengths, duration = self._run(path)
+        return _ctc_words(
+            log_probs[0],
+            int(np.asarray(encoded_lengths).reshape(-1)[0]),
+            self._blank_id,
+            self._pieces,
+            duration,
+        )
+
+    def _run(self, path: Path) -> tuple[np.ndarray, np.ndarray, float]:
         self.ensure_model()
         assert self._session is not None
         assert self._feature_extractor is not None
@@ -287,14 +341,13 @@ class OnnxTranscriber(_SegmentingTranscriber):
             raise ValueError(
                 f"ONNX emitted {log_probs.shape[-1]} classes, expected {self._num_classes}"
             )
-        return _decode_ctc(
-            log_probs, encoded_lengths, self._blank_id, self._pieces
-        )[0]
+        return log_probs, encoded_lengths, samples.size / self._feature_extractor.sample_rate
 
 
 __all__ = [
     "NumpyFeatureExtractor",
     "OnnxTranscriber",
     "Segment",
+    "Word",
     "log_mel_spectrogram",
 ]

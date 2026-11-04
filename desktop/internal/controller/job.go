@@ -3,6 +3,8 @@ package controller
 import (
 	"encoding/json"
 	"os"
+
+	"rechiv/desktop/internal/engine"
 )
 
 type JobStatus string
@@ -15,9 +17,10 @@ const (
 )
 
 type JobSegment struct {
-	Text  string  `json:"text"`
-	Start float64 `json:"start"`
-	End   float64 `json:"end"`
+	Text  string        `json:"text"`
+	Start float64       `json:"start"`
+	End   float64       `json:"end"`
+	Words []engine.Word `json:"words,omitempty"`
 }
 
 type Job struct {

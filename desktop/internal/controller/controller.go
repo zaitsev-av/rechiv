@@ -602,6 +602,7 @@ func (c *Controller) processJob(job *Job) {
 				Text:  segment.Text,
 				Start: segment.Start,
 				End:   segment.End,
+				Words: segment.Words,
 			})
 		}
 	}
