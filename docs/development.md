@@ -43,7 +43,22 @@ After the first build open `chrome://extensions`, enable developer mode and choo
 
 ## Building for Linux
 
-Linux amd64 and the extension:
+A ready Linux x86-64 build with its own Python, ffmpeg and model is built on Linux
+(in CI on `ubuntu-22.04`, hence the glibc 2.35+ requirement):
+
+```bash
+scripts/prefetch.sh                 # linux-x86_64 and shared lines of prefetch.lock
+scripts/build-python-runtime.sh
+scripts/build-ffmpeg.sh
+task desktop:linux                  # build/dist/Rechiv-<version>-linux-x86_64.tar.gz and .sha256
+```
+
+The archive holds a `rechiv-<version>-linux-x86_64/` folder with the `rechiv` binary, `resources/`
+(Python, engine, model, ffmpeg, web UI, extension), `README.txt` and `THIRD_PARTY_NOTICES.txt`.
+The binary finds `resources/` next to itself. The runtime drops the `_dbm` module: on Linux it
+statically contains Berkeley DB under the Sleepycat license.
+
+Just the binary and the extension for development:
 
 ```bash
 task setup

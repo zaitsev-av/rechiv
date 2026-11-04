@@ -9,7 +9,7 @@
 <p align="center">Records and transcribes online calls right on your computer</p>
 
 <p align="center">
-  <a href="https://github.com/zaitsev-av/rechiv/releases"><b>Download for macOS (Apple Silicon)</b></a>
+  <a href="https://github.com/zaitsev-av/rechiv/releases"><b>Download for macOS (Apple Silicon) and Linux (x86-64)</b></a>
 </p>
 
 <p align="center">
@@ -73,6 +73,11 @@ next to it lets you verify the download.
 The app is signed without a Developer ID, so on first launch macOS warns that it cannot
 verify the developer. Open it via the context menu → “Open” or allow it in
 “System Settings → Privacy & Security”.
+
+For Linux x86-64 the same page has `Rechiv-<version>-linux-x86_64.tar.gz`. It needs glibc 2.35 or
+newer: Ubuntu 22.04+, Debian 12+, Fedora 36+. Unpack the archive anywhere and run `./rechiv` from
+the `rechiv-<version>-linux-x86_64` folder. KDE, XFCE and Cinnamon show the tray icon; GNOME needs
+the “AppIndicator and KStatusNotifierItem Support” extension.
 
 On first launch Rechiv shows how to connect the extension: it lives in the app's data
 folder and is loaded into the browser as an unpacked extension in developer mode.
@@ -170,9 +175,11 @@ an external provider.
   participants arrive as one audio stream and the speaker is determined from signalling;
 - in Google Meet the extension decodes the other participants' audio frames itself and
   splits them by source; calls with five or more participants have not been tested yet;
-- a ready build exists only for macOS on Apple Silicon; it is signed without a Developer ID
-  and not notarized; there are no automatic updates yet — download new versions from Releases;
-- on Linux only the binary is built; `.deb`, `.rpm` and AppImage packages are not;
+- ready builds exist for macOS on Apple Silicon and Linux x86-64; the macOS build is signed
+  without a Developer ID and not notarized; there are no automatic updates yet — download new
+  versions from Releases;
+- on Linux there is only a `.tar.gz` archive: no `.deb`, `.rpm` or AppImage packages, no menu
+  entry and no autostart;
 - summaries require access to an external LLM API.
 
 ## FAQ
@@ -222,5 +229,5 @@ Requirements, building the `.app` and releases, architecture, API and repository
 The app bundles third-party components under their own licenses: Python, FFmpeg (LGPL-2.1),
 ONNX Runtime, NumPy, the GigaAM model (MIT), Go libraries and the
 [Tiptap](https://github.com/ueberdosis/tiptap) editor (MIT). The full list with license texts is in
-`THIRD_PARTY_NOTICES.txt` in the `.dmg`, inside `Rechiv.app/Contents/Resources/` and in every
+`THIRD_PARTY_NOTICES.txt` in the `.dmg`, inside `Rechiv.app/Contents/Resources/`, at the root of the Linux archive and in every
 release, next to the FFmpeg source the binary is built from.

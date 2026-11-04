@@ -5,7 +5,11 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-ARCHIVE="$BUILD_DIR/prefetch/cpython-arm64-darwin.tar.gz"
+PLATFORM="$("$SCRIPT_DIR/platform.sh")"
+case "$PLATFORM" in
+  darwin-arm64) ARCHIVE="$BUILD_DIR/prefetch/cpython-arm64-darwin.tar.gz" ;;
+  linux-x86_64) ARCHIVE="$BUILD_DIR/prefetch/cpython-x86_64-linux.tar.gz" ;;
+esac
 WHEEL_DIR="$BUILD_DIR/prefetch/wheels"
 RUNTIME_DIR="$BUILD_DIR/python"
 
@@ -65,7 +69,7 @@ remove_paths \
   "$STAGED_RUNTIME/share" \
   "$STAGED_RUNTIME/lib/pkgconfig" \
   "$STAGED_RUNTIME/lib/libpython3.13.dylib" \
-  "$STDLIB/config-3.13-darwin" \
+  "$STDLIB"/config-3.13-* \
   "$STDLIB/ensurepip" \
   "$SITE_PACKAGES/pip" \
   "$SITE_PACKAGES"/pip-*.dist-info \
@@ -101,17 +105,19 @@ remove_paths \
   "$STDLIB/turtle.py" \
   "$STDLIB/pydoc.py" \
   "$STDLIB/pydoc_data" \
-  "$STDLIB/lib-dynload/_tkinter.cpython-313-darwin.so" \
+  "$STDLIB"/lib-dynload/_tkinter.cpython-313-*.so \
+  "$STDLIB"/lib-dynload/_dbm.cpython-313-*.so \
   "$STAGED_RUNTIME/lib/tcl9" \
   "$STAGED_RUNTIME/lib/tcl9.0" \
   "$STAGED_RUNTIME/lib/tk9.0" \
   "$STAGED_RUNTIME/lib/itcl4.3.5" \
   "$STAGED_RUNTIME/lib/thread3.0.4" \
-  "$STAGED_RUNTIME/lib/libtcl9.0.dylib" \
-  "$STAGED_RUNTIME/lib/libtcl9tk9.0.dylib"
+  "$STAGED_RUNTIME"/lib/libtcl9.0.* \
+  "$STAGED_RUNTIME"/lib/libtcl9tk9.0.*
 
 # Inference needs neither NumPy development files nor ONNX model tooling.
-# ONNX Runtime's standalone C API dylib is not linked by the Python extension.
+# ONNX Runtime's standalone C API library is not linked by the Python extension.
+# _dbm on Linux statically links Berkeley DB (Sleepycat license); Rechiv does not use it.
 find "$SITE_PACKAGES" -type d \( -name test -o -name tests \) -prune -exec rm -rf -- {} +
 remove_paths \
   "$SITE_PACKAGES/numpy/f2py" \
@@ -122,7 +128,8 @@ remove_paths \
   "$SITE_PACKAGES/onnxruntime/quantization" \
   "$SITE_PACKAGES/onnxruntime/tools" \
   "$SITE_PACKAGES/onnxruntime/transformers" \
-  "$SITE_PACKAGES/onnxruntime/capi/libonnxruntime.1.28.0.dylib"
+  "$SITE_PACKAGES"/onnxruntime/capi/libonnxruntime.1.28.0.dylib \
+  "$SITE_PACKAGES"/onnxruntime/capi/libonnxruntime.so.1.28.0
 find "$SITE_PACKAGES" -type f \( \
   -name '*.h' -o -name '*.pxd' -o -name '*.pyi' \
 \) -delete

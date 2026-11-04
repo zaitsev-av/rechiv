@@ -43,7 +43,22 @@ task dev
 
 ## Сборка для Linux
 
-Linux amd64 и расширение:
+Готовая сборка для Linux x86-64 со своим Python, ffmpeg и моделью собирается на Linux
+(в CI — на `ubuntu-22.04`, отсюда требование glibc 2.35+):
+
+```bash
+scripts/prefetch.sh                 # строки linux-x86_64 и общие из prefetch.lock
+scripts/build-python-runtime.sh
+scripts/build-ffmpeg.sh
+task desktop:linux                  # build/dist/Rechiv-<версия>-linux-x86_64.tar.gz и .sha256
+```
+
+Внутри архива — папка `rechiv-<версия>-linux-x86_64/` с бинарником `rechiv`, `resources/`
+(Python, движок, модель, ffmpeg, интерфейс, расширение), `README.txt` и `THIRD_PARTY_NOTICES.txt`.
+Бинарник находит `resources/` рядом с собой. В рантайме удалён модуль `_dbm`: на Linux он
+статически содержит Berkeley DB под лицензией Sleepycat.
+
+Только бинарник и расширение для разработки:
 
 ```bash
 task setup

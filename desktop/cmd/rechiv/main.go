@@ -193,8 +193,10 @@ func start(args []string) (result *application, err error) {
 		return nil, errors.New("recognition model not found: reinstall the application")
 	}
 
+	// -B: байткод внутри Rechiv.app нарушил бы подпись бандла.
 	engineCommand := []string{
 		*pythonBinary,
+		"-B",
 		*engineWorker,
 		"--model", *modelName,
 		"--device", *device,

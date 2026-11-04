@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Собирает THIRD_PARTY_NOTICES.txt из того, что попадает в Rechiv.app.
+"""Собирает THIRD_PARTY_NOTICES.txt из того, что попадает в сборку Rechiv.
 
-    scripts/third-party-notices.py <Rechiv.app> <выходной файл>
+    scripts/third-party-notices.py <каталог ресурсов> <выходной файл> <darwin-arm64|linux-x86_64>
+
+Каталог ресурсов — Rechiv.app/Contents/Resources или resources/ Linux-сборки.
 
 Колёса Python читаются из site-packages бандла, модули Go — по `go list -deps`, пакеты npm —
 по продовым зависимостям расширения, ffmpeg — из исходного архива. Тексты, которых в сборке
@@ -23,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LICENSES = ROOT / "licenses"
 LICENSE_NAME = re.compile(r"^(licen[cs]e|copying|notice|thirdpartynotices)", re.IGNORECASE)
 
+# По PYTHON.json полного архива python-build-standalone: что вшито статически.
 PYTHON_RUNTIME = [
     ("CPython", "Python-2.0", "cpython"),
     ("OpenSSL", "Apache-2.0", "openssl-3"),
@@ -34,6 +37,16 @@ PYTHON_RUNTIME = [
     ("bzip2", "bzip2-1.0.6", "bzip2"),
     ("libuuid", "BSD-3-Clause", "libuuid"),
 ]
+# На macOS эти библиотеки системные, на Linux вшиты в рантайм.
+PYTHON_RUNTIME_LINUX = [
+    ("ncurses", "X11", "ncurses"),
+    ("libedit", "BSD-3-Clause", "libedit"),
+    ("zlib", "Zlib", "zlib"),
+]
+GO_ENV = {
+    "darwin-arm64": {"GOOS": "darwin", "GOARCH": "arm64", "CGO_ENABLED": "1"},
+    "linux-x86_64": {"GOOS": "linux", "GOARCH": "amd64", "CGO_ENABLED": "0"},
+}
 # Колёса без файла лицензии внутри.
 VENDORED_WHEELS = {"flatbuffers": LICENSES / "flatbuffers" / "LICENSE"}
 
@@ -67,16 +80,17 @@ def run(args: list[str], cwd: Path, env: dict | None = None) -> str:
     return subprocess.run(args, cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout
 
 
-def python_runtime() -> None:
-    for name, spdx, key in PYTHON_RUNTIME:
+def python_runtime(platform: str) -> None:
+    components = PYTHON_RUNTIME + (PYTHON_RUNTIME_LINUX if platform.startswith("linux") else [])
+    for name, spdx, key in components:
         add(f"{name} — Python runtime (python-build-standalone) — {spdx}",
             [LICENSES / "python-build-standalone" / f"LICENSE.{key}.txt"])
 
 
-def wheels(app: Path) -> None:
-    site = next((app / "Contents/Resources/python/lib").glob("python3*/site-packages"), None)
+def wheels(resources: Path) -> None:
+    site = next((resources / "python/lib").glob("python3*/site-packages"), None)
     if site is None:
-        fail(f"нет site-packages в {app}")
+        fail(f"нет site-packages в {resources}")
     for dist in sorted(site.glob("*.dist-info")):
         meta = Parser().parsestr((dist / "METADATA").read_text(encoding="utf-8"))
         name, version = meta["Name"], meta["Version"]
@@ -112,9 +126,9 @@ def ffmpeg() -> None:
     add(f"FFmpeg {version} — LGPL-2.1-or-later", texts)
 
 
-def go_modules() -> None:
+def go_modules(platform: str) -> None:
     desktop = ROOT / "desktop"
-    env = {**os.environ, "GOOS": "darwin", "GOARCH": "arm64", "CGO_ENABLED": "1"}
+    env = {**os.environ, **GO_ENV[platform]}
     goroot = Path(run(["go", "env", "GOROOT"], desktop, env).strip())
     goversion = run(["go", "env", "GOVERSION"], desktop, env).strip()
     add(f"Go standard library {goversion} — BSD-3-Clause", [goroot / "LICENSE"])
@@ -148,13 +162,13 @@ def model() -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4 or sys.argv[3] not in GO_ENV:
         sys.exit(__doc__)
-    app, out = Path(sys.argv[1]), Path(sys.argv[2])
-    python_runtime()
-    wheels(app)
+    resources, out, platform = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+    python_runtime(platform)
+    wheels(resources)
     ffmpeg()
-    go_modules()
+    go_modules(platform)
     npm_packages()
     model()
     if missing:
@@ -168,7 +182,7 @@ def main() -> None:
         "",
         rechiv_license.rstrip(),
         "",
-        "Rechiv.app bundles the following third-party components:",
+        f"This Rechiv build ({platform}) bundles the following third-party components:",
         "",
         *[f"  - {title}" for title, _ in entries],
         "",

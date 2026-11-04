@@ -3,23 +3,39 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Ручной запуск собирает обе платформы без релиза: артефакты остаются в прогоне.
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  MODEL_BASE_URL: https://github.com/${{ github.repository }}/releases/download/model-gigaam-v3-e2e-ctc-int8
+
 jobs:
-  macos:
-    runs-on: macos-15
-    env:
-      MODEL_BASE_URL: https://github.com/${{ github.repository }}/releases/download/model-gigaam-v3-e2e-ctc-int8
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-15
+          # Самый старый раннер: сборка требует glibc не новее, чем у него (2.35).
+          - platform: linux-x86_64
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Версия
         id: version
         run: |
-          echo "version=$(scripts/version.sh check "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
-          echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            scripts/version.sh check "$GITHUB_REF_NAME"
+            echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$(scripts/version.sh check)" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-go@v7
         with:
@@ -40,14 +56,14 @@ jobs:
           path: |
             build/prefetch
             build/onnx-int8
-          key: prefetch-${{ hashFiles('scripts/prefetch.lock') }}
+          key: prefetch-${{ matrix.platform }}-${{ hashFiles('scripts/prefetch.lock') }}
       - run: scripts/prefetch.sh
 
       - id: python-cache
         uses: actions/cache@v6
         with:
           path: build/python
-          key: python-${{ runner.os }}-${{ hashFiles('scripts/prefetch.lock', 'scripts/build-python-runtime.sh') }}
+          key: python-${{ matrix.platform }}-${{ hashFiles('scripts/prefetch.lock', 'scripts/build-python-runtime.sh') }}
       - if: steps.python-cache.outputs.cache-hit != 'true'
         run: scripts/build-python-runtime.sh
 
@@ -55,17 +71,40 @@ jobs:
         uses: actions/cache@v6
         with:
           path: build/ffmpeg
-          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/prefetch.lock', 'scripts/build-ffmpeg.sh') }}
+          key: ffmpeg-${{ matrix.platform }}-${{ hashFiles('scripts/prefetch.lock', 'scripts/build-ffmpeg.sh') }}
       - if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: scripts/build-ffmpeg.sh
 
       - run: npm ci
         working-directory: extension
-      - run: task desktop:app
-      - run: scripts/package-app.sh
+
+      - if: matrix.platform == 'darwin-arm64'
+        run: |
+          task desktop:app
+          scripts/package-app.sh
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+      - if: matrix.platform == 'linux-x86_64'
+        run: task desktop:linux
         env:
           VERSION: ${{ steps.version.outputs.tag }}
 
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.platform }}
+          path: build/dist/
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
       - name: Релиз
         env:
           GH_TOKEN: ${{ github.token }}
@@ -73,6 +112,6 @@ jobs:
         run: |
           prerelease=""
           case "$TAG" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$TAG" build/dist/Rechiv-*.dmg build/dist/Rechiv-*.dmg.sha256 \
-            build/dist/THIRD_PARTY_NOTICES.txt build/dist/ffmpeg-*.tar.xz \
+          ls -la dist
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "Rechiv ${TAG#v}" --generate-notes $prerelease

@@ -30,7 +30,7 @@ cp "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt" "$STAGING/THIRD_PARTY_NOTIC
 
 mkdir -p "$DIST"
 rm -f "$DMG" "$DMG.sha256" "$DIST"/ffmpeg-*.tar.xz
-cp "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt" "$DIST/THIRD_PARTY_NOTICES.txt"
+cp "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt" "$DIST/THIRD_PARTY_NOTICES-darwin-arm64.txt"
 cp "$FFMPEG_SOURCE" "$DIST/$FFMPEG_NAME"
 hdiutil create -quiet -volname "Rechiv $VERSION" -srcfolder "$STAGING" \
   -fs HFS+ -format UDZO -imagekey zlib-level=9 "$DMG"

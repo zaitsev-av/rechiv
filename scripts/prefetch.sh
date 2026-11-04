@@ -1,5 +1,6 @@
 #!/bin/sh
-# Скачивает исходники сборки .app по scripts/prefetch.lock и сверяет sha256.
+# Скачивает исходники сборки по scripts/prefetch.lock и сверяет sha256.
+# Берёт строки текущей платформы и общие; PREFETCH_PLATFORM задаёт платформу явно.
 # Уже скачанный файл с верной суммой не перекачивается.
 #
 #   MODEL_BASE_URL=https://github.com/<owner>/rechiv/releases/download/model-gigaam-v3-e2e-ctc-int8 \
@@ -14,11 +15,20 @@ ROOT_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
 LOCK="$SCRIPT_DIR/prefetch.lock"
 MODEL_BASE_URL="${MODEL_BASE_URL:-}"
+PLATFORM="${PREFETCH_PLATFORM:-$("$SCRIPT_DIR/platform.sh")}"
 
-sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
+if command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
+else
+  sha256() { sha256sum "$1" | awk '{print $1}'; }
+fi
 
 failed=0
-grep -v '^#' "$LOCK" | grep -v '^[[:space:]]*$' | while read -r path url expected; do
+grep -v '^#' "$LOCK" | grep -v '^[[:space:]]*$' | while read -r path url expected platform; do
+  case "$platform" in
+    all|"$PLATFORM") ;;
+    *) continue ;;
+  esac
   target="$BUILD_DIR/$path"
   if [ -f "$target" ] && [ "$(sha256 "$target")" = "$expected" ]; then
     printf 'ok      %s\n' "$path"
@@ -37,7 +47,7 @@ grep -v '^#' "$LOCK" | grep -v '^[[:space:]]*$' | while read -r path url expecte
 
   mkdir -p "$(dirname "$target")"
   printf 'скачиваю %s\n' "$path"
-  curl -fsSL --retry 3 -o "$target.part" "$url"
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$target.part" "$url"
   actual="$(sha256 "$target.part")"
   if [ "$actual" != "$expected" ]; then
     rm -f "$target.part"

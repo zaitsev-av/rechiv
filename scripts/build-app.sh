@@ -64,7 +64,7 @@ if command -v iconutil >/dev/null 2>&1 && [ -d "$ROOT/desktop/assets/Rechiv.icon
 fi
 
 printf 'Собираю уведомления о лицензиях…\n'
-python3 "$ROOT/scripts/third-party-notices.py" "$APP" "$RESOURCES/THIRD_PARTY_NOTICES.txt" \
+python3 "$ROOT/scripts/third-party-notices.py" "$RESOURCES" "$RESOURCES/THIRD_PARTY_NOTICES.txt" darwin-arm64 \
   || fail "не собрал THIRD_PARTY_NOTICES.txt"
 
 cat > "$CONTENTS/Info.plist" <<PLIST

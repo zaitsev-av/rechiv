@@ -123,7 +123,7 @@ func TestOpenExtensions(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Equal(t, []commandCall{{
-			name: "/usr/bin/open",
+			name: openCommand,
 			args: []string{"-a", chrome.Path, "chrome://extensions/"},
 		}}, runner.calls)
 	})
@@ -141,7 +141,7 @@ func TestOpenExtensions(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Equal(t, []commandCall{{
-			name: "/usr/bin/open",
+			name: openCommand,
 			args: []string{"-b", pathless.BundleID, "chrome://extensions/"},
 		}}, runner.calls)
 	})
@@ -170,7 +170,7 @@ func TestReveal(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Equal(t, []commandCall{{
-			name: "/usr/bin/open", args: []string{"-R", dir},
+			name: openCommand, args: revealArgs(dir),
 		}}, runner.calls)
 	})
 

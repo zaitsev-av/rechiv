@@ -155,7 +155,7 @@ func (s *Service) OpenExtensions(bundleID string) error {
 	}
 
 	target, value := openTarget(application)
-	if err := s.runner.Run("/usr/bin/open", target, value, browser.ExtensionsURL); err != nil {
+	if err := s.runner.Run(openCommand, target, value, browser.ExtensionsURL); err != nil {
 		return fmt.Errorf("не удалось открыть страницу расширений в %s: %w", browser.Name, err)
 	}
 
@@ -177,7 +177,7 @@ func (s *Service) Reveal() error {
 		return fmt.Errorf("%w: расширение ещё не собрано", ErrExtensionNotFound)
 	}
 
-	if err := s.runner.Run("/usr/bin/open", "-R", dir); err != nil {
+	if err := s.runner.Run(openCommand, revealArgs(dir)...); err != nil {
 		return fmt.Errorf("не удалось показать каталог расширения: %w", err)
 	}
 
@@ -207,7 +207,7 @@ func (s *Service) OpenFirstOnboarding(dataDir, url string) (bool, error) {
 		return false, fmt.Errorf("закрыть маркер онбординга: %w", closeErr)
 	}
 
-	if err := s.runner.Run("/usr/bin/open", url); err != nil {
+	if err := s.runner.Run(openCommand, url); err != nil {
 		_ = os.Remove(marker)
 		return false, fmt.Errorf("открыть онбординг: %w", err)
 	}

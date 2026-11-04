@@ -8,15 +8,12 @@ BUILD_DIR="$ROOT_DIR/build"
 ARCHIVE="$BUILD_DIR/prefetch/ffmpeg-source.tar.xz"
 OUTPUT="$BUILD_DIR/ffmpeg"
 
-if [ "$(uname -s)" != "Darwin" ]; then
-  printf 'This script builds the macOS ffmpeg bundle binary.\n' >&2
-  exit 1
-fi
+PLATFORM="$("$SCRIPT_DIR/platform.sh")"
 if [ ! -f "$ARCHIVE" ]; then
   printf 'FFmpeg source archive not found: %s\n' "$ARCHIVE" >&2
   exit 1
 fi
-if ! command -v xcrun >/dev/null 2>&1; then
+if [ "$PLATFORM" = darwin-arm64 ] && ! command -v xcrun >/dev/null 2>&1; then
   printf 'xcrun not found; install the Xcode Command Line Tools.\n' >&2
   exit 1
 fi
@@ -36,15 +33,22 @@ if [ ! -x "$SOURCE_DIR/configure" ]; then
   exit 1
 fi
 
-CC="$(xcrun --find clang)"
-MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
+# Платформенные флаги; набор компонентов ниже общий.
+if [ "$PLATFORM" = darwin-arm64 ]; then
+  CC="$(xcrun --find clang)"
+  MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
+  STRIP="xcrun strip"
+  set -- --cc="$CC" --sysroot="$MACOS_SDK" \
+    --host-cflags="-isysroot $MACOS_SDK" --host-ldflags="-isysroot $MACOS_SDK"
+else
+  STRIP="strip"
+  # Без nasm: для декодера opus и ресемплера ассемблер почти ничего не даёт.
+  set -- --disable-x86asm
+fi
 
 cd "$SOURCE_DIR"
 if ! ./configure \
-  --cc="$CC" \
-  --sysroot="$MACOS_SDK" \
-  --host-cflags="-isysroot $MACOS_SDK" \
-  --host-ldflags="-isysroot $MACOS_SDK" \
+  "$@" \
   --disable-everything \
   --disable-autodetect \
   --enable-static \
@@ -86,7 +90,7 @@ case "$BUILD_JOBS" in
 esac
 
 make -j "$BUILD_JOBS" ffmpeg
-xcrun strip ffmpeg
+$STRIP ffmpeg
 
 if [ ! -x ffmpeg ]; then
   printf 'FFmpeg build did not produce an executable.\n' >&2
