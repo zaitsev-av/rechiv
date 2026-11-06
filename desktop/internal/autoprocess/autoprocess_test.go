@@ -59,7 +59,7 @@ func setup(t *testing.T, settings domain.FolderSettings) fixture {
 	dir := t.TempDir()
 	sessions, err := store.New(dir)
 	require.NoError(t, err)
-	folder, err := sessions.CreateFolder("Дейли")
+	folder, err := sessions.CreateFolder("Дейли", "")
 	require.NoError(t, err)
 	_, _, err = sessions.AddFolderRule(folder.ID, "https://telemost.yandex.ru/j/1")
 	require.NoError(t, err)

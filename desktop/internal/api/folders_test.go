@@ -84,7 +84,7 @@ func TestFolderRoutesRequireAuthWithWebUI(t *testing.T) {
 	server = New(control, testAPIToken, "", testExpectedVersion, nil, WithWebUI(t.TempDir()))
 	for _, tt := range []struct{ method, path string }{
 		{"PUT", "/folders/id/settings"}, {"GET", "/folders/id/titles"}, {"POST", "/folders/id/titles"}, {"GET", "/folders/id/retention?days=1"},
-		{"GET", "/folders"}, {"POST", "/folders"}, {"PATCH", "/folders/id"}, {"DELETE", "/folders/id"},
+		{"PUT", "/folders/id/parent"}, {"GET", "/folders"}, {"POST", "/folders"}, {"PATCH", "/folders/id"}, {"DELETE", "/folders/id"},
 		{"POST", "/folders/id/rules"}, {"DELETE", "/folders/id/rules?url=x"}, {"POST", "/folders/id/sessions"}, {"PUT", "/sessions/id/folder"},
 	} {
 		rec := httptest.NewRecorder()
@@ -96,4 +96,51 @@ func TestFolderRoutesRequireAuthWithWebUI(t *testing.T) {
 	req.Header.Set("Origin", extensionOriginPrefix+DefaultExtensionID)
 	server.ServeHTTP(rec, req)
 	require.Contains(t, rec.Header().Get("Access-Control-Allow-Methods"), "PATCH")
+}
+
+func TestNestedFolderRoutes(t *testing.T) {
+	server, _ := newTestServer(t, healthyEngine())
+	call := func(method, path, body string, code int) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, request(method, path, strings.NewReader(body), testAPIToken))
+		require.Equal(t, code, rec.Code, rec.Body.String())
+		return rec
+	}
+	create := func(name, parent string) domain.Folder {
+		t.Helper()
+		var f domain.Folder
+		require.NoError(t, json.Unmarshal(call("POST", "/folders", `{"name":"`+name+`","parentId":"`+parent+`"}`, 201).Body.Bytes(), &f))
+		require.Equal(t, parent, f.ParentID)
+		return f
+	}
+	a := create("A", "")
+	b := create("B", a.ID)
+	c := create("C", b.ID)
+	other := create("Other", "")
+	call("POST", "/folders", `{"name":"D","parentId":"`+c.ID+`"}`, 422)
+	call("POST", "/folders", `{"name":"D","parentId":"missing"}`, 422)
+	for _, tt := range []struct {
+		id, parent string
+		code       int
+	}{
+		{"missing", "", 404}, {a.ID, "missing", 422}, {a.ID, a.ID, 422},
+		{a.ID, c.ID, 422}, {a.ID, other.ID, 422}, {other.ID, c.ID, 422},
+		{b.ID, other.ID, 200}, {b.ID, "", 200},
+	} {
+		rec := call("PUT", "/folders/"+tt.id+"/parent", `{"parentId":"`+tt.parent+`"}`, tt.code)
+		if tt.code == 200 {
+			var f domain.Folder
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &f))
+			require.Equal(t, tt.parent, f.ParentID)
+			require.Equal(t, tt.id, f.ID)
+		}
+	}
+	call("PUT", "/folders/"+b.ID+"/parent", `{`, 400)
+	call("PATCH", "/folders/"+c.ID, `{"name":"Renamed"}`, 200)
+	var folders []domain.Folder
+	require.NoError(t, json.Unmarshal(call("GET", "/folders", "", 200).Body.Bytes(), &folders))
+	require.Len(t, folders, 4)
+	require.Equal(t, b.ID, folders[2].ParentID)
+	require.Equal(t, "Renamed", folders[2].Name)
 }

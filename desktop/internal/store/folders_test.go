@@ -2,10 +2,13 @@ package store
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -17,12 +20,12 @@ func TestFoldersLifecycle(t *testing.T) {
 	st, err := New(dir)
 	require.NoError(t, err)
 	require.Empty(t, st.Folders())
-	_, err = st.CreateFolder(" \n")
+	_, err = st.CreateFolder(" \n", "")
 	require.ErrorIs(t, err, ErrInvalid)
-	a, err := st.CreateFolder(" Дейли ")
+	a, err := st.CreateFolder(" Дейли ", "")
 	require.NoError(t, err)
 	require.Equal(t, "Дейли", a.Name)
-	b, err := st.CreateFolder("Ретро")
+	b, err := st.CreateFolder("Ретро", "")
 	require.NoError(t, err)
 	require.NotEqual(t, a.ID, b.ID)
 	require.Equal(t, 1, b.Color)
@@ -100,7 +103,7 @@ func TestFoldersMissingCorruptAndLegacyMeta(t *testing.T) {
 	saved, err := st.Get(session.SessionID)
 	require.NoError(t, err)
 	require.Empty(t, saved.FolderID)
-	folder, err := st.CreateFolder("One")
+	folder, err := st.CreateFolder("One", "")
 	require.NoError(t, err)
 	require.NoError(t, st.MoveSessions([]string{session.SessionID}, folder.ID, true))
 	path := filepath.Join(dir, "folders.json")
@@ -122,7 +125,7 @@ func TestFoldersMissingCorruptAndLegacyMeta(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "{broken", string(after))
 
-	_, err = st.CreateFolder("Two")
+	_, err = st.CreateFolder("Two", "")
 	require.NoError(t, err)
 	backup, err := os.ReadFile(path + ".broken")
 	require.NoError(t, err)
@@ -155,7 +158,7 @@ func TestFolderColorsCycle(t *testing.T) {
 	st, err := New(t.TempDir())
 	require.NoError(t, err)
 	for i := 0; i < 7; i++ {
-		f, err := st.CreateFolder("folder")
+		f, err := st.CreateFolder("folder", "")
 		require.NoError(t, err)
 		require.Equal(t, i%5, f.Color)
 	}
@@ -165,7 +168,7 @@ func TestStoreChangesAndFolderForCallURL(t *testing.T) {
 	s, err := New(t.TempDir())
 	require.NoError(t, err)
 	changes := s.Changes()
-	folder, err := s.CreateFolder("Дейли")
+	folder, err := s.CreateFolder("Дейли", "")
 	require.NoError(t, err)
 	select {
 	case <-changes:
@@ -191,4 +194,179 @@ func TestStoreChangesAndFolderForCallURL(t *testing.T) {
 	require.Equal(t, folder.ID, found.ID)
 	_, ok = s.FolderForCallURL("")
 	require.False(t, ok)
+}
+
+func TestReadNestedFolders(t *testing.T) {
+	for _, tt := range []struct {
+		name, raw string
+		parents   []string
+	}{
+		{"legacy", `[{"id":"a","name":"A"},{"id":"b","name":"B"}]`, []string{"", ""}},
+		{"missing", `[{"id":"a","name":"A","parentId":"missing"},{"id":"b","name":"B","parentId":"a"}]`, []string{"", "a"}},
+		{"cycle", `[{"id":"a","name":"A","parentId":"b"},{"id":"b","name":"B","parentId":"a"},{"id":"c","name":"C","parentId":"b"},{"id":"d","name":"D","parentId":"d"}]`, []string{"", "", "b", ""}},
+		{"depth", `[{"id":"d","name":"D","parentId":"c"},{"id":"c","name":"C","parentId":"b"},{"id":"b","name":"B","parentId":"a"},{"id":"a","name":"A"},{"id":"e","name":"E","parentId":"d"}]`, []string{"", "b", "a", "", ""}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "folders.json")
+			raw := []byte(`{"folders":` + tt.raw + `}`)
+			require.NoError(t, os.WriteFile(path, raw, 0o600))
+			var warning bytes.Buffer
+			previous := log.Writer()
+			log.SetOutput(&warning)
+			t.Cleanup(func() { log.SetOutput(previous) })
+			folders, broken := readFolders(path)
+			require.False(t, broken)
+			require.Len(t, folders, len(tt.parents))
+			var original []domain.Folder
+			require.NoError(t, json.Unmarshal([]byte(tt.raw), &original))
+			for i, f := range folders {
+				require.Equal(t, original[i].ID, f.ID)
+				require.Equal(t, tt.parents[i], f.ParentID, f.ID)
+			}
+			if tt.name != "legacy" {
+				require.Contains(t, warning.String(), "warning:")
+			}
+			after, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, raw, after)
+		})
+	}
+}
+
+func TestNestedFolderMoves(t *testing.T) {
+	dir := t.TempDir()
+	st, err := New(dir)
+	require.NoError(t, err)
+	a, err := st.CreateFolder("A", "")
+	require.NoError(t, err)
+	b, err := st.CreateFolder("B", a.ID)
+	require.NoError(t, err)
+	c, err := st.CreateFolder("C", b.ID)
+	require.NoError(t, err)
+	require.Equal(t, b.ID, c.ParentID)
+	require.Equal(t, []domain.Folder{a, b, c}, domain.FolderPath(st.Folders(), c.ID))
+	_, err = st.CreateFolder("D", c.ID)
+	require.ErrorIs(t, err, ErrInvalid)
+	_, err = st.CreateFolder("D", "missing")
+	require.ErrorIs(t, err, ErrInvalid)
+	other, err := st.CreateFolder("Other", "")
+	require.NoError(t, err)
+	before := st.Folders()
+	for _, tt := range []struct {
+		id, parent string
+		want       error
+	}{
+		{"missing", "", ErrNotFound}, {a.ID, "missing", ErrInvalid},
+		{a.ID, a.ID, ErrInvalid}, {a.ID, c.ID, ErrInvalid},
+		{a.ID, other.ID, ErrInvalid}, {other.ID, c.ID, ErrInvalid},
+	} {
+		_, err := st.MoveFolder(tt.id, tt.parent)
+		require.ErrorIs(t, err, tt.want)
+		require.Equal(t, before, st.Folders())
+	}
+	changes := st.Changes()
+	moved, err := st.MoveFolder(b.ID, other.ID)
+	require.NoError(t, err)
+	require.Equal(t, other.ID, moved.ParentID)
+	select {
+	case <-changes:
+	default:
+		t.Fatal("перенос не оповестил подписчиков")
+	}
+	moved, err = st.MoveFolder(b.ID, "")
+	require.NoError(t, err)
+	require.Empty(t, moved.ParentID)
+	moved, err = st.MoveFolder(b.ID, "")
+	require.NoError(t, err)
+	require.Empty(t, moved.ParentID)
+	restored, err := New(dir)
+	require.NoError(t, err)
+	require.Equal(t, st.Folders(), restored.Folders())
+	require.Equal(t, b.ID, restored.Folders()[2].ParentID)
+}
+
+func TestDeleteNestedFolder(t *testing.T) {
+	for _, nested := range []bool{false, true} {
+		t.Run(fmt.Sprint(nested), func(t *testing.T) {
+			dir := t.TempDir()
+			st, err := New(dir)
+			require.NoError(t, err)
+			parent := ""
+			if nested {
+				f, err := st.CreateFolder("Parent", "")
+				require.NoError(t, err)
+				parent = f.ID
+			}
+			folder, err := st.CreateFolder("Folder", parent)
+			require.NoError(t, err)
+			child, err := st.CreateFolder("Child", folder.ID)
+			require.NoError(t, err)
+			own, err := st.Create("meet.google.com/own")
+			require.NoError(t, err)
+			descendant, err := st.Create("meet.google.com/child")
+			require.NoError(t, err)
+			require.NoError(t, st.MoveSessions([]string{own.SessionID}, folder.ID, true))
+			require.NoError(t, st.MoveSessions([]string{descendant.SessionID}, child.ID, true))
+			_, _, err = st.AddFolderRule(folder.ID, own.CallURL)
+			require.NoError(t, err)
+			_, _, err = st.AddFolderRule(child.ID, descendant.CallURL)
+			require.NoError(t, err)
+			require.NoError(t, st.DeleteFolder(folder.ID))
+			st, err = New(dir)
+			require.NoError(t, err)
+			saved, err := st.Get(own.SessionID)
+			require.NoError(t, err)
+			require.Equal(t, parent, saved.FolderID)
+			require.False(t, saved.FolderByRule)
+			saved, err = st.Get(descendant.SessionID)
+			require.NoError(t, err)
+			require.Equal(t, child.ID, saved.FolderID)
+			require.True(t, saved.FolderByRule)
+			require.Equal(t, parent, st.Folders()[folderIndex(st.Folders(), child.ID)].ParentID)
+			_, ok := st.FolderForCallURL(own.CallURL)
+			require.False(t, ok)
+			f, ok := st.FolderForCallURL(descendant.CallURL)
+			require.True(t, ok)
+			require.Equal(t, child.ID, f.ID)
+		})
+	}
+}
+
+func TestNestedFolderRuleAndSettings(t *testing.T) {
+	st, err := New(t.TempDir())
+	require.NoError(t, err)
+	parent, err := st.CreateFolder("Parent", "")
+	require.NoError(t, err)
+	child, err := st.CreateFolder("Child", parent.ID)
+	require.NoError(t, err)
+	_, err = st.SetFolderSettings(parent.ID, domain.FolderSettings{TitleTemplate: "Parent", RetentionDays: 1})
+	require.NoError(t, err)
+	_, _, err = st.AddFolderRule(child.ID, "meet.google.com/child")
+	require.NoError(t, err)
+	session, err := st.Create("https://meet.google.com/child?x=1")
+	require.NoError(t, err)
+	saved, err := st.ApplyFolderRule(session.SessionID)
+	require.NoError(t, err)
+	require.Equal(t, child.ID, saved.FolderID)
+	require.True(t, saved.FolderByRule)
+	require.Empty(t, saved.Title)
+	settings := domain.FolderSettings{TitleTemplate: "Child {date}", RetentionDays: 2, AutoRecord: true, AutoSummary: true, LivePanel: true}
+	_, err = st.SetFolderSettings(child.ID, settings)
+	require.NoError(t, err)
+	saved, err = st.ApplyFolderRule(session.SessionID)
+	require.NoError(t, err)
+	require.Equal(t, domain.RenderTitleTemplate(settings.TitleTemplate, session.CreatedAt, ""), saved.Title)
+	require.True(t, saved.TitleAuto)
+	found, ok := st.FolderForCallURL(session.CallURL)
+	require.True(t, ok)
+	require.Equal(t, parent.ID, found.ParentID)
+	require.Equal(t, settings, found.Settings)
+	require.NoError(t, st.SetStatus(saved.SessionID, domain.StatusCompleted, ""))
+	now := session.CreatedAt.Add(72 * time.Hour)
+	ids, err := st.PreviewFolderRetention(parent.ID, 1, now)
+	require.NoError(t, err)
+	require.Empty(t, ids)
+	ids, err = st.PreviewFolderRetention(child.ID, 2, now)
+	require.NoError(t, err)
+	require.Equal(t, []string{session.SessionID}, ids)
 }

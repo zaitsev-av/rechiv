@@ -43,9 +43,9 @@ func TestReadTools(t *testing.T) {
 						Participant: "Анна",
 						Folder:      "Дейли",
 					}).
-					Return([]library.Call{{ID: "call", Folder: "Дейли"}}, nil)
+					Return([]library.Call{{ID: "call", Folder: "Платежи", FolderPath: "Дейли / Платежи"}}, nil)
 			},
-			wantJSON: `{"calls":[{"id":"call","title":"","created_at":"","duration":"","participants":null,"status":"","has_summary":false,"folder":"Дейли"}]}`,
+			wantJSON: `{"calls":[{"id":"call","title":"","created_at":"","duration":"","participants":null,"status":"","has_summary":false,"folder":"Платежи","folderPath":"Дейли / Платежи"}]}`,
 		},
 		{
 			name: "ошибка списка",

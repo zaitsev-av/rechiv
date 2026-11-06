@@ -178,6 +178,7 @@ func New(
 	mux.HandleFunc("GET /folders", server.listFolders)
 	mux.HandleFunc("POST /folders", server.createFolder)
 	mux.HandleFunc("PATCH /folders/{id}", server.renameFolder)
+	mux.HandleFunc("PUT /folders/{id}/parent", server.moveFolder)
 	mux.HandleFunc("DELETE /folders/{id}", server.deleteFolder)
 	mux.HandleFunc("POST /folders/{id}/rules", server.addFolderRule)
 	mux.HandleFunc("DELETE /folders/{id}/rules", server.deleteFolderRule)

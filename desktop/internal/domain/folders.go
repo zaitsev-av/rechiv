@@ -20,12 +20,38 @@ type FolderSettings struct {
 	RetentionDays int    `json:"retentionDays,omitempty"`
 }
 
+const MaxFolderDepth = 3
+
 type Folder struct {
+	ParentID string         `json:"parentId,omitempty"`
 	ID       string         `json:"id"`
 	Name     string         `json:"name"`
 	Color    int            `json:"color"`
 	Rules    []FolderRule   `json:"rules"`
 	Settings FolderSettings `json:"settings"`
+}
+
+// FolderPath возвращает путь от корня, защищаясь от повреждённых связей.
+func FolderPath(folders []Folder, id string) []Folder {
+	byID := make(map[string]Folder, len(folders))
+	for _, folder := range folders {
+		byID[folder.ID] = folder
+	}
+	var path []Folder
+	seen := map[string]bool{}
+	for id != "" && !seen[id] {
+		folder, ok := byID[id]
+		if !ok {
+			break
+		}
+		seen[id] = true
+		path = append(path, folder)
+		id = folder.ParentID
+	}
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
+	}
+	return path
 }
 
 func NormalizeCallURL(raw string) string {

@@ -627,7 +627,7 @@ body {
 .folder-sidebar {
   position: sticky;
   top: 16px;
-  flex: 0 0 220px;
+  flex: 0 0 256px;
   padding: 14px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1208,4 +1208,135 @@ body {
   .folder-settings-footer .folder-button {
     width: 100%;
   }
+}
+
+.folder-tree-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-inline-start: calc(var(--folder-depth, 0) * 12px);
+}
+.folder-tree-row .folder-nav-item {
+  min-width: 0;
+  flex: 1;
+  padding-inline-start: 4px;
+}
+.folder-collapse {
+  flex: 0 0 22px;
+  width: 22px;
+  padding: 4px 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.folder-collapse[hidden] {
+  display: block;
+  visibility: hidden;
+}
+.folder-collapse:hover,
+.folder-crumb:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+.folder-breadcrumbs,
+.folder-children {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.folder-breadcrumbs {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.folder-crumb {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 3px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.folder-children {
+  margin-bottom: 16px;
+}
+.folder-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.folder-name {
+  min-width: 0;
+  overflow-wrap: normal;
+}
+.folder-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* «+» не занимает места в узкой панели: появляется поверх счётчика. */
+.folder-add-child {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  background: var(--surface-soft);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.folder-tree-row:hover .folder-add-child,
+.folder-tree-row:focus-within .folder-add-child {
+  opacity: 1;
+  pointer-events: auto;
+}
+.folder-tree-row:has(.folder-add-child):hover .folder-count,
+.folder-tree-row:has(.folder-add-child):focus-within .folder-count {
+  visibility: hidden;
+}
+.folder-add-child:hover {
+  color: var(--ink);
+  background: var(--border);
+}
+@media (hover: none) {
+  .folder-add-child {
+    display: none;
+  }
+}
+.folder-new-child {
+  color: var(--muted);
+  background: transparent;
+  border-style: dashed;
+}
+.folder-new-child:hover {
+  color: var(--ink);
+}
+.folder-root-drop {
+  margin-top: 8px;
+  border: 1px dashed var(--border-strong);
+}
+.folder-nav-item.dragging {
+  opacity: 0.45;
+}
+.folder-menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.folder-delete-details {
+  padding-left: 20px;
+  overflow-wrap: anywhere;
 }

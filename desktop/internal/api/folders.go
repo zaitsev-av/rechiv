@@ -31,12 +31,13 @@ func (s *Server) listFolders(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name string `json:"name"`
+		Name     string `json:"name"`
+		ParentID string `json:"parentId"`
 	}
 	if !folderBody(w, r, &body) {
 		return
 	}
-	f, err := s.controller.Store().CreateFolder(body.Name)
+	f, err := s.controller.Store().CreateFolder(body.Name, body.ParentID)
 	if err != nil {
 		s.folderError(w, err)
 		return
@@ -57,6 +58,21 @@ func (s *Server) renameFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, f)
+}
+
+func (s *Server) moveFolder(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ParentID string `json:"parentId"`
+	}
+	if !folderBody(w, r, &body) {
+		return
+	}
+	folder, err := s.controller.Store().MoveFolder(r.PathValue("id"), body.ParentID)
+	if err != nil {
+		s.folderError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, folder)
 }
 
 func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) {

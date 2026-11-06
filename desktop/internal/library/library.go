@@ -36,8 +36,14 @@ func (l *Library) ListCalls(ctx context.Context, filter ListFilter) ([]Call, err
 	}
 	folders := store.ReadFolders(filepath.Join(filepath.Dir(l.sessionsDir), "folders.json"))
 	names := map[string]string{}
+	paths := map[string]string{}
 	for _, f := range folders {
 		names[f.ID] = f.Name
+		var parts []string
+		for _, ancestor := range domain.FolderPath(folders, f.ID) {
+			parts = append(parts, ancestor.Name)
+		}
+		paths[f.ID] = strings.Join(parts, " / ")
 	}
 	calls := make([]Call, 0, len(sessions))
 	for _, session := range sessions {
@@ -49,8 +55,9 @@ func (l *Library) ListCalls(ctx context.Context, filter ListFilter) ([]Call, err
 		}
 		call := l.call(session)
 		call.Folder = names[session.FolderID]
+		call.FolderPath = paths[session.FolderID]
 		inbox := strings.EqualFold(filter.Folder, "inbox") || strings.EqualFold(filter.Folder, "Входящие")
-		if inbox && call.Folder != "" || !inbox && !contains(call.Folder, filter.Folder) {
+		if inbox && call.Folder != "" || !inbox && !contains(call.FolderPath, filter.Folder) {
 			continue
 		}
 		if !contains(call.Title, filter.Query) || !hasParticipant(call, filter.Participant) {

@@ -752,7 +752,7 @@ func TestDeleteSessionDropsCachedJobs(t *testing.T) {
 func TestCreateSessionFolderRule(t *testing.T) {
 	c, st := newTestController(t)
 	defer c.Close()
-	folder, err := st.CreateFolder("Дейли")
+	folder, err := st.CreateFolder("Дейли", "")
 	require.NoError(t, err)
 	_, _, err = st.AddFolderRule(folder.ID, "meet.google.com/room")
 	require.NoError(t, err)

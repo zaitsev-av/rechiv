@@ -12,7 +12,7 @@ import (
 
 func TestTopicRoutes(t *testing.T) {
 	server, c := newTestServer(t, healthyEngine())
-	folder, err := c.Store().CreateFolder("Daily")
+	folder, err := c.Store().CreateFolder("Daily", "")
 	require.NoError(t, err)
 	_, err = c.Store().SetFolderSettings(folder.ID, domain.FolderSettings{TitleTemplate: "Дейли — {topic}"})
 	require.NoError(t, err)

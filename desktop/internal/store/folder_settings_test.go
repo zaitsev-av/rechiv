@@ -34,7 +34,7 @@ func TestFolderTemplateLifecycle(t *testing.T) {
 	dir := t.TempDir()
 	st, err := New(dir)
 	require.NoError(t, err)
-	f, err := st.CreateFolder("Daily")
+	f, err := st.CreateFolder("Daily", "")
 	require.NoError(t, err)
 	_, err = st.SetFolderSettings(f.ID, domain.FolderSettings{TitleTemplate: "  Дейли {date} "})
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestFolderTemplateLifecycle(t *testing.T) {
 func TestFolderRetentionPreview(t *testing.T) {
 	st, err := New(t.TempDir())
 	require.NoError(t, err)
-	f, err := st.CreateFolder("Daily")
+	f, err := st.CreateFolder("Daily", "")
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	want := []string{}
@@ -161,7 +161,7 @@ func TestApplyTitlesUsesSavedTopic(t *testing.T) {
 	dir := t.TempDir()
 	st, err := New(dir)
 	require.NoError(t, err)
-	f, err := st.CreateFolder("Daily")
+	f, err := st.CreateFolder("Daily", "")
 	require.NoError(t, err)
 	_, err = st.SetFolderSettings(f.ID, domain.FolderSettings{TitleTemplate: "Дейли — {topic}", AutoSummary: true})
 	require.NoError(t, err)

@@ -19,7 +19,7 @@ func TestFolderSettingsRoutes(t *testing.T) {
 		require.Equal(t, code, rec.Code, rec.Body.String())
 		return rec
 	}
-	folder, err := c.Store().CreateFolder("Daily")
+	folder, err := c.Store().CreateFolder("Daily", "")
 	require.NoError(t, err)
 	path := "/folders/" + folder.ID
 	var result domain.Folder

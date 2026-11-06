@@ -5,6 +5,9 @@ import { formatDateTime, plural } from "@shared/utils";
 const linkIcon =
   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
 const STORAGE_KEY = "history-folder";
+const COLLAPSED_KEY = `${STORAGE_KEY}-collapsed`;
+const MAX_FOLDER_DEPTH = 3;
+const FOLDER_MIME = "application/x-rechiv-folder";
 const SESSION_MIME = "application/x-rechiv-session";
 const folderIcon =
   '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2.2h7.4A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>';
@@ -36,6 +39,9 @@ export class HistoryFolders {
   private restoreTriggerFocus = false;
   private dialog: HTMLDialogElement | null = null;
   private draggedSession: SessionInfo | null = null;
+  private collapsed = new Set<string>();
+  private currentPath = "";
+  private draggedFolder: Folder | null = null;
   private dropTarget: HTMLElement | null = null;
 
   constructor(
@@ -45,6 +51,9 @@ export class HistoryFolders {
   ) {
     try {
       this.current = localStorage.getItem(STORAGE_KEY) || "all";
+      const collapsed: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]");
+      if (Array.isArray(collapsed))
+        this.collapsed = new Set(collapsed.filter((id): id is string => typeof id === "string"));
     } catch {
       /* Хранилище может быть отключено. */
     }
@@ -71,8 +80,54 @@ export class HistoryFolders {
   folder(id?: string) {
     return this.folders.find((folder) => folder.id === id);
   }
+  private path(id: string): Folder[] {
+    const path: Folder[] = [];
+    const seen = new Set<string>();
+    let folder = this.folder(id);
+    while (folder && !seen.has(folder.id)) {
+      seen.add(folder.id);
+      path.unshift(folder);
+      folder = this.folder(folder.parentId);
+    }
+    return path;
+  }
+  private pathName(id: string) {
+    return this.path(id)
+      .map((folder) => folder.name)
+      .join(" / ");
+  }
+  private children(id: string) {
+    return this.folders.filter((folder) => (folder.parentId || "") === id);
+  }
+  private tree(parentId = "", depth = 1): { folder: Folder; depth: number }[] {
+    if (depth > MAX_FOLDER_DEPTH) return [];
+    return this.children(parentId).flatMap((folder) => [
+      { folder, depth },
+      ...this.tree(folder.id, depth + 1),
+    ]);
+  }
+  private ownCount(id: string) {
+    return this.sessions.filter((session) => session.folderId === id).length;
+  }
+  private saveCollapsed() {
+    try {
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...this.collapsed]));
+    } catch {
+      /* Хранилище может быть отключено. */
+    }
+  }
+  private expandAncestors() {
+    for (const folder of this.path(this.current).slice(0, -1)) this.collapsed.delete(folder.id);
+    this.saveCollapsed();
+  }
+  private canMove(folder: Folder, parentId: string) {
+    const parentPath = this.path(parentId);
+    if (parentPath.some((ancestor) => ancestor.id === folder.id)) return false;
+    const height = Math.max(1, ...this.tree(folder.id).map((item) => item.depth + 1));
+    return parentPath.length + height <= MAX_FOLDER_DEPTH;
+  }
   get paused() {
-    return !!this.draggedSession || !!this.menu;
+    return !!this.draggedSession || !!this.draggedFolder || !!this.menu;
   }
   visible() {
     return this.sessions.filter(
@@ -89,11 +144,19 @@ export class HistoryFolders {
     this.sessions = sessions;
     if (this.current !== "all" && this.current !== "inbox" && !this.folder(this.current))
       this.select("all", false);
+    const path = this.path(this.current)
+      .map((folder) => folder.id)
+      .join("/");
+    if (path !== this.currentPath) {
+      this.currentPath = path;
+      this.expandAncestors();
+    }
     this.renderNavigation();
     this.renderHead();
   }
   private select(id: string, refresh = true) {
     this.current = id;
+    this.expandAncestors();
     try {
       localStorage.setItem(STORAGE_KEY, id);
     } catch {
@@ -110,7 +173,14 @@ export class HistoryFolders {
     const items = [
       { id: "all", name: "Все созвоны" },
       { id: "inbox", name: "Входящие" },
-      ...this.folders,
+      ...this.tree()
+        .filter(
+          ({ folder }) =>
+            !this.path(folder.id)
+              .slice(0, -1)
+              .some((ancestor) => this.collapsed.has(ancestor.id)),
+        )
+        .map(({ folder }) => folder),
     ];
     for (const item of items) {
       const f = this.folder(item.id);
@@ -119,7 +189,8 @@ export class HistoryFolders {
       this.setupDrop(node, item.id);
       if (this.current === item.id) node.setAttribute("aria-current", "page");
       const name = element("span", "folder-name");
-      name.append(element("span", "folder-dot"), document.createTextNode(item.name));
+      name.append(element("span", "folder-dot"), element("span", "folder-label", item.name));
+      node.title = f ? this.pathName(f.id) : item.name;
       if (f) color(node, f);
       if (f?.rules.length) {
         const rule = element("span", "folder-rule-icon");
@@ -133,7 +204,34 @@ export class HistoryFolders {
           (item.id === "inbox" ? !this.folder(s.folderId) : s.folderId === item.id),
       ).length;
       node.append(name, element("span", "folder-count", String(count)));
-      nav.append(node);
+      if (f) {
+        const row = element("div", "folder-tree-row");
+        row.style.setProperty("--folder-depth", String(this.path(f.id).length - 1));
+        const toggle = button(
+          this.collapsed.has(f.id) ? "▸" : "▾",
+          () => {
+            if (this.collapsed.has(f.id)) this.collapsed.delete(f.id);
+            else this.collapsed.add(f.id);
+            this.saveCollapsed();
+            this.renderNavigation();
+            document.querySelector<HTMLButtonElement>(`[data-collapse="${f.id}"]`)?.focus();
+          },
+          "folder-collapse",
+        );
+        toggle.dataset.collapse = f.id;
+        toggle.setAttribute("aria-label", `Подпапки «${f.name}»`);
+        toggle.setAttribute("aria-expanded", String(!this.collapsed.has(f.id)));
+        if (!this.children(f.id).length) toggle.hidden = true;
+        row.append(toggle, node);
+        if (this.path(f.id).length < MAX_FOLDER_DEPTH) {
+          const add = button("+", () => this.nameDialog(undefined, f.id), "folder-add-child");
+          add.title = `Новая подпапка в «${f.name}»`;
+          add.setAttribute("aria-label", add.title);
+          row.append(add);
+        }
+        this.setupFolderDrag(node, f);
+        nav.append(row);
+      } else nav.append(node);
       if (focused === item.id) node.focus();
     }
   }
@@ -154,6 +252,20 @@ export class HistoryFolders {
         ),
       );
     }
+    document.getElementById("folder-breadcrumbs")?.remove();
+    if (folder && title) {
+      const crumbs = element("nav", "folder-breadcrumbs");
+      crumbs.id = "folder-breadcrumbs";
+      crumbs.setAttribute("aria-label", "Путь папки");
+      crumbs.append(button("Все созвоны", () => this.select("all"), "folder-crumb"));
+      for (const ancestor of this.path(folder.id).slice(0, -1)) {
+        crumbs.append(
+          document.createTextNode(" / "),
+          button(ancestor.name, () => this.select(ancestor.id), "folder-crumb"),
+        );
+      }
+      title.before(crumbs);
+    }
     const eyebrow = document.getElementById("history-eyebrow");
     if (eyebrow) eyebrow.hidden = !!folder;
     const copy = document.querySelector<HTMLElement>(".hero-copy");
@@ -164,6 +276,31 @@ export class HistoryFolders {
     if (!banner) return;
     banner.replaceChildren();
     if (folder) {
+      const children = this.children(folder.id);
+      const canNest = this.path(folder.id).length < MAX_FOLDER_DEPTH;
+      if (children.length || canNest) {
+        const subfolders = element("nav", "folder-children");
+        subfolders.setAttribute("aria-label", "Подпапки");
+        for (const child of children) {
+          const node = button("", () => this.select(child.id), "folder-button folder-child");
+          node.append(
+            element("span", "folder-dot"),
+            document.createTextNode(child.name),
+            element("span", "folder-count", String(this.ownCount(child.id))),
+          );
+          color(node, child);
+          subfolders.append(node);
+        }
+        if (canNest)
+          subfolders.append(
+            button(
+              "+ Подпапка",
+              () => this.nameDialog(undefined, folder.id),
+              "folder-button folder-new-child",
+            ),
+          );
+        banner.append(subfolders);
+      }
       const rules = element("section", "folder-rules");
       rules.setAttribute("aria-label", "Правила папки");
       rules.append(element("span", "rules-label", "↗ Новые записи по ссылке попадают сюда сами"));
@@ -200,7 +337,7 @@ export class HistoryFolders {
     this.setupDrag(card, session);
     const folder = this.folder(session.folderId);
     if (this.current === "all") {
-      const chip = element("span", "folder-chip", folder?.name ?? "Входящие");
+      const chip = element("span", "folder-chip", folder ? this.pathName(folder.id) : "Входящие");
       if (folder) color(chip, folder);
       details.append(chip);
     } else if (folder && session.folderByRule)
@@ -289,6 +426,64 @@ export class HistoryFolders {
       this.interactionChanged();
     });
   }
+  private setupFolderDrag(node: HTMLButtonElement, folder: Folder) {
+    node.draggable = true;
+    let suppressClick = false;
+    node.addEventListener("mousedown", () => {
+      suppressClick = false;
+    });
+    node.addEventListener("keydown", () => {
+      suppressClick = false;
+    });
+    node.addEventListener(
+      "click",
+      (event) => {
+        if (!suppressClick) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        suppressClick = false;
+      },
+      true,
+    );
+    node.addEventListener("dragstart", (event) => {
+      if (!event.dataTransfer) {
+        event.preventDefault();
+        return;
+      }
+      this.draggedFolder = folder;
+      suppressClick = true;
+      event.dataTransfer.setData(FOLDER_MIME, folder.id);
+      event.dataTransfer.effectAllowed = "move";
+      node.classList.add("dragging");
+      if (folder.parentId) {
+        const root = button(
+          "На верхний уровень",
+          () => undefined,
+          "folder-nav-item folder-root-drop",
+        );
+        this.setupDrop(root, "");
+        document.getElementById("folders")?.append(root);
+      }
+      document.querySelector(".folder-sidebar")?.classList.add("drop-ready");
+      for (const target of document.querySelectorAll<HTMLElement>("[data-folder]")) {
+        const id = target.dataset.folder!;
+        target.classList.toggle(
+          "drop-denied",
+          !this.folder(id) || id === folder.parentId || !this.canMove(folder, id),
+        );
+      }
+      this.closeMenu(false);
+      this.interactionChanged();
+    });
+    node.addEventListener("dragend", () => {
+      this.draggedFolder = null;
+      node.classList.remove("dragging");
+      document.querySelector(".folder-root-drop")?.remove();
+      this.markDropTargets(null);
+      this.clearDropTarget();
+      this.interactionChanged();
+    });
+  }
   private markDropTargets(session: SessionInfo | null) {
     document.querySelector(".folder-sidebar")?.classList.toggle("drop-ready", !!session);
     const from = session ? (this.folder(session.folderId)?.id ?? "") : "";
@@ -304,11 +499,21 @@ export class HistoryFolders {
   }
   private setupDrop(node: HTMLButtonElement, id: string) {
     const folderId = id === "inbox" ? "" : id;
-    const accepts = (event: DragEvent) =>
-      !!this.draggedSession &&
-      !!event.dataTransfer?.types.includes(SESSION_MIME) &&
-      id !== "all" &&
-      (this.folder(this.draggedSession.folderId)?.id ?? "") !== folderId;
+    const accepts = (event: DragEvent) => {
+      if (this.draggedFolder)
+        return (
+          !!event.dataTransfer?.types.includes(FOLDER_MIME) &&
+          (id === "" || !!this.folder(id)) &&
+          (this.draggedFolder.parentId || "") !== id &&
+          this.canMove(this.draggedFolder, id)
+        );
+      return (
+        !!this.draggedSession &&
+        !!event.dataTransfer?.types.includes(SESSION_MIME) &&
+        id !== "all" &&
+        (this.folder(this.draggedSession.folderId)?.id ?? "") !== folderId
+      );
+    };
     const over = (event: DragEvent) => {
       const accepted = accepts(event);
       if (event.dataTransfer) event.dataTransfer.dropEffect = accepted ? "move" : "none";
@@ -333,9 +538,20 @@ export class HistoryFolders {
       if (!accepts(event)) return;
       event.preventDefault();
       event.stopPropagation();
+      if (this.draggedFolder) {
+        if (event.dataTransfer!.getData(FOLDER_MIME) === this.draggedFolder.id)
+          this.moveFolder(this.draggedFolder, id);
+        return;
+      }
       const session = this.draggedSession!;
       if (event.dataTransfer!.getData(SESSION_MIME) !== session.sessionId) return;
       this.moveSession(session, folderId);
+    });
+  }
+  private moveFolder(folder: Folder, parentId: string) {
+    this.run(async () => {
+      await this.api.moveFolder(folder.id, parentId);
+      this.closeMenu();
     });
   }
   private moveSession(session: SessionInfo, folderId: string) {
@@ -378,7 +594,7 @@ export class HistoryFolders {
       item.setAttribute("role", "menuitem");
     });
     this.positionMenu();
-    this.menu?.querySelector<HTMLElement>("button")?.focus();
+    this.menu?.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
   }
   private positionMenu() {
     if (!this.menu || !this.trigger) return;
@@ -404,13 +620,17 @@ export class HistoryFolders {
     if (!menu) return;
     menu.append(element("div", "eyebrow", "Перенести в папку"));
     const target = this.folder(session.folderId);
-    for (const item of [...this.folders, { id: "", name: "Входящие", color: -1 }]) {
+    for (const { folder: item, depth } of [
+      ...this.tree(),
+      { folder: { id: "", name: "Входящие", color: -1 }, depth: 1 },
+    ]) {
       const move = button(`${item.name}${(target?.id ?? "") === item.id ? " ✓" : ""}`, () =>
         this.moveSession(session, item.id),
       );
       const dot = element("span", "folder-dot");
-      if (item.color >= 0) color(dot, item);
+      if (item.color >= 0) color(dot, { color: item.color });
       move.prepend(dot);
+      move.style.paddingInlineStart = `${10 + (depth - 1) * 18}px`;
       move.dataset.moveTo = item.id;
       menu.append(move);
     }
@@ -488,20 +708,93 @@ export class HistoryFolders {
         this.nameDialog(folder);
       }),
     );
+    const create = button("Новая подпапка", () => {
+      this.closeMenu();
+      this.nameDialog(undefined, folder.id);
+    });
+    create.disabled = this.path(folder.id).length >= MAX_FOLDER_DEPTH;
+    if (create.disabled) {
+      create.title = "Максимум 3 уровня папок";
+      menu.append(element("div", "folder-hint", create.title));
+    }
+    const move = button("Перенести в", () => this.folderMoveMenu(menu, folder));
+    move.addEventListener("click", (event) => event.stopPropagation());
+    menu.append(create, move);
     menu.append(
       button(
         "Удалить папку",
         () => {
-          if (!confirm(`Удалить папку «${folder.name}»? Созвоны останутся во «Входящих».`)) return;
-          this.run(async () => {
-            await this.api.deleteFolder(folder.id);
-            this.select("all", false);
-          });
+          this.closeMenu();
+          this.deleteDialog(folder);
         },
         "folder-menu-item danger",
       ),
     );
     this.finishMenu();
+  }
+  private folderMoveMenu(menu: HTMLElement, folder: Folder) {
+    menu.replaceChildren(element("div", "eyebrow", "Перенести в"));
+    const targets = [{ folder: { id: "", name: "Верхний уровень" }, depth: 1 }, ...this.tree()];
+    for (const { folder: target, depth } of targets) {
+      if (this.path(target.id).some((ancestor) => ancestor.id === folder.id)) continue;
+      const move = button(target.name, () => this.moveFolder(folder, target.id));
+      move.dataset.moveFolderTo = target.id;
+      move.style.paddingInlineStart = `${10 + (depth - 1) * 18}px`;
+      move.disabled = !this.canMove(folder, target.id) || (folder.parentId || "") === target.id;
+      if (move.disabled)
+        move.title =
+          (folder.parentId || "") === target.id ? "Уже здесь" : "Поддерево превысит 3 уровня";
+      menu.append(move);
+    }
+    this.finishMenu();
+  }
+  private deleteDialog(folder: Folder) {
+    if (this.dialog) return;
+    const dialog = this.createDialog(
+      `Удалить папку «${folder.name}»?`,
+      document.getElementById("folder-actions") ?? undefined,
+    );
+    const destination = folder.parentId ? `«${this.pathName(folder.parentId)}»` : "«Входящие»";
+    const children = this.children(folder.id);
+    const list = element("ul", "folder-delete-details");
+    const own = this.ownCount(folder.id);
+    if (own) list.append(element("li", "", `Созвоны (${own}) → ${destination}.`));
+    if (children.length)
+      list.append(
+        element(
+          "li",
+          "",
+          `Подпапки (${children.length}: ${children.map((child) => child.name).join(", ")}) → ${folder.parentId ? destination : "на верхний уровень"}.`,
+        ),
+      );
+    if (folder.rules.length)
+      list.append(element("li", "", `Правила папки (${folder.rules.length}) удалятся.`));
+    if (!list.childElementCount) list.append(element("li", "", "Папка пустая."));
+    dialog.append(list, element("p", "", "Записи не удаляются."));
+    const actions = element("div", "dialog-actions");
+    const remove = button(
+      "Удалить папку",
+      () => {
+        remove.disabled = true;
+        this.run(
+          async () => {
+            await this.api.deleteFolder(folder.id);
+            this.select(folder.parentId || "all", false);
+            dialog.close();
+          },
+          () => {
+            remove.disabled = false;
+          },
+        );
+      },
+      "folder-button danger",
+    );
+    actions.append(
+      button("Отмена", () => dialog.close(), "folder-button"),
+      remove,
+    );
+    dialog.append(actions);
+    actions.querySelector("button")?.focus();
   }
   private createDialog(title: string, trigger?: HTMLElement) {
     const dialog = element("dialog", "folder-dialog");
@@ -881,10 +1174,17 @@ export class HistoryFolders {
     syncRetention();
     input.focus();
   }
-  private nameDialog(folder?: Folder) {
+  private nameDialog(folder?: Folder, parentId?: string) {
     if (this.dialog) return;
     const trigger = document.getElementById(folder ? "folder-actions" : "new-folder") ?? undefined;
-    const dialog = this.createDialog(folder ? "Переименовать папку" : "Новая папка", trigger);
+    const dialog = this.createDialog(
+      folder
+        ? "Переименовать папку"
+        : parentId
+          ? `Новая подпапка в «${this.folder(parentId)?.name ?? ""}»`
+          : "Новая папка",
+      trigger,
+    );
     const form = element("form", "folder-form");
     const input = element("input", "folder-name-input");
     input.setAttribute("aria-label", "Название папки");
@@ -909,7 +1209,9 @@ export class HistoryFolders {
         async () => {
           const result = folder
             ? await this.api.renameFolder(folder.id, input.value)
-            : await this.api.createFolder(input.value);
+            : parentId
+              ? await this.api.createFolder(input.value, parentId)
+              : await this.api.createFolder(input.value);
           this.select(result.id, false);
           dialog.close();
         },

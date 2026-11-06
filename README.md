@@ -109,7 +109,7 @@ GigaAM model is loaded as soon as recording starts, so it is ready for the first
 
 ### Folders
 
-Calls can be organized into virtual folders without moving files on disk. In a call’s ⋯ menu, move it to a folder and enable a rule for its call link. The rule applies to new calls; a dialog offers to move matching past calls. Deleting a folder returns its calls to Inbox.
+Calls can be organized into virtual folders without moving files on disk. In a call’s ⋯ menu, move it to a folder and enable a rule for its call link. The rule applies to new calls; a dialog offers to move matching past calls. Folders support up to three levels. Each folder shows and counts only its own calls; settings and retention are not inherited. Deleting a folder moves its calls and direct subfolders to its parent; at the top level, calls return to Inbox and subfolders become top-level folders. Its rules are removed, but recordings are kept.
 
 Folder settings (⋯ in the folder header) offer a title template with `{date}`, `{time}` and `{weekday}` in the machine’s local time, retention in days, and a “Record automatically” switch that starts recording when you join a call by the folder's link. The template applies to new calls routed by a link rule and, after confirmation, to existing automatic titles; manual titles and manual moves are preserved. Optional retention deletes calls older than the selected number of days at startup, hourly and immediately after saving, excluding recording and processing calls.
 
@@ -152,9 +152,9 @@ claude mcp add rechiv -- "/Applications/Rechiv.app/Contents/MacOS/rechiv" mcp
 For another location, pass the path to the binary. The recordings directory can be set
 with `mcp -data-dir /path/to/data`; by default the application's directory is used.
 
-The `folder` filter matches part of a folder name (case-insensitive, ё/е equivalent);
+The `folder` filter matches part of a folder path (including parent names) (case-insensitive, ё/е equivalent);
 `inbox` or `Входящие` selects calls without a folder. List results include the folder name
-as `folder`.
+as `folder` and the full path as `folderPath`.
 
 - `rechiv_list_calls` — find a call by date, title, participant or `folder`;
 - `rechiv_get_summary` — read the summary on its own;

@@ -200,8 +200,12 @@ export class SttApiClient {
     return this._getCore("/folders");
   }
 
-  async createFolder(name: string): Promise<Folder> {
-    return this._postCore("/folders", { name });
+  async createFolder(name: string, parentId?: string): Promise<Folder> {
+    return this._postCore("/folders", { name, parentId });
+  }
+
+  async moveFolder(id: string, parentId: string): Promise<Folder> {
+    return this._folderRequest(`/folders/${encodeURIComponent(id)}/parent`, "PUT", { parentId });
   }
 
   async renameFolder(id: string, name: string): Promise<Folder> {

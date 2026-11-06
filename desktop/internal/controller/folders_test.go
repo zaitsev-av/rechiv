@@ -14,9 +14,9 @@ import (
 func TestRetentionOnStartAndSettings(t *testing.T) {
 	c, st := newTestController(t)
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
-	f, err := st.CreateFolder("Daily")
+	f, err := st.CreateFolder("Daily", "")
 	require.NoError(t, err)
-	other, err := st.CreateFolder("Other")
+	other, err := st.CreateFolder("Other", "")
 	require.NoError(t, err)
 	create := func(folder string, status domain.SessionStatus) string {
 		session, err := st.Create("")
@@ -60,7 +60,7 @@ func TestRetentionOnStartAndSettings(t *testing.T) {
 
 func TestRetentionTicksAndStops(t *testing.T) {
 	c, st := newTestController(t)
-	f, err := st.CreateFolder("Daily")
+	f, err := st.CreateFolder("Daily", "")
 	require.NoError(t, err)
 	session, err := st.Create("")
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestRetentionTicksAndStops(t *testing.T) {
 func TestCreateSessionAppliesTitleTemplate(t *testing.T) {
 	c, st := newTestController(t)
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
-	f, err := st.CreateFolder("Daily")
+	f, err := st.CreateFolder("Daily", "")
 	require.NoError(t, err)
 	_, err = st.SetFolderSettings(f.ID, domain.FolderSettings{TitleTemplate: "Дейли {date} {time}"})
 	require.NoError(t, err)

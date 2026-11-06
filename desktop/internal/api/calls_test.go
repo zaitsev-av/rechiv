@@ -54,7 +54,7 @@ func TestPollCallsAutoStart(t *testing.T) {
 	require.NoError(t, err)
 	control := controller.New(sessions, nil, nil, log.New(io.Discard, "", 0))
 	server := New(control, testAPIToken, "", "dev", nil, WithCalls(calls.NewHub()))
-	folder, err := sessions.CreateFolder("Дейли")
+	folder, err := sessions.CreateFolder("Дейли", "")
 	require.NoError(t, err)
 	_, _, err = sessions.AddFolderRule(folder.ID, "https://telemost.yandex.ru/j/1")
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestPollCallsAutoStart(t *testing.T) {
 func TestCreateSessionLivePanel(t *testing.T) {
 	server, control := newTestServer(t, healthyEngine())
 	sessions := control.Store()
-	folder, err := sessions.CreateFolder("Дейли")
+	folder, err := sessions.CreateFolder("Дейли", "")
 	require.NoError(t, err)
 	_, _, err = sessions.AddFolderRule(folder.ID, "https://telemost.yandex.ru/j/1")
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestEventsStream(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "retry: 3000\n", line)
 
-	_, err = sessions.CreateFolder("Дейли")
+	_, err = sessions.CreateFolder("Дейли", "")
 	require.NoError(t, err)
 	var received []string
 	for len(received) < 2 {

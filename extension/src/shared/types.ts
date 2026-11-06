@@ -7,6 +7,7 @@ export interface FolderSettings {
 }
 
 export interface Folder {
+  parentId?: string;
   settings?: FolderSettings;
   id: string;
   name: string;

@@ -429,11 +429,10 @@ it("renames a folder and confirms its deletion", async () => {
   await settle();
   expect(rename).toHaveBeenCalledWith("daily", "Стендапы");
   const remove = vi.spyOn(api, "deleteFolder").mockResolvedValue();
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   document.getElementById("folder-actions")!.click();
   click("Удалить папку");
   expect(remove).not.toHaveBeenCalled();
-  confirm.mockReturnValue(true);
+  expect(document.querySelector("dialog")?.textContent).toContain("Записи не удаляются");
   click("Удалить папку");
   await settle();
   expect(remove).toHaveBeenCalledWith("daily");
@@ -755,5 +754,240 @@ describe("folder settings", () => {
       livePanel: false,
     });
     expect(document.querySelector("dialog")).toBeNull();
+  });
+});
+
+describe("nested folders", () => {
+  let nested: Folder[];
+  const nav = (id: string) => document.querySelector<HTMLButtonElement>(`[data-folder="${id}"]`)!;
+  const toggle = (id: string) =>
+    document.querySelector<HTMLButtonElement>(`[data-collapse="${id}"]`)!;
+  const target = (id: string) =>
+    document.querySelector<HTMLButtonElement>(`[data-move-folder-to="${id}"]`);
+  function actions(id: string) {
+    view.current = id;
+    view.update(nested, sessions);
+    document.getElementById("folder-actions")!.click();
+  }
+  beforeEach(async () => {
+    nested = [
+      { id: "leaf", name: "API", parentId: "child", color: 3, rules: [] },
+      { id: "daily", name: "Груминги", color: 1, rules: [] },
+      { id: "retro", name: "Ретро", color: 2, rules: [] },
+      { id: "child", name: "Платежи", parentId: "daily", color: 0, rules: [] },
+      { id: "other", name: "Команда", parentId: "retro", color: 4, rules: [] },
+    ];
+    sessions = [session("s1", "daily"), session("s2", "child"), session("s3", "leaf")];
+    refresh.mockImplementation(async () => {
+      view.update(nested, sessions);
+      render();
+    });
+    await refresh();
+  });
+
+  it("shows a tree, own counts, breadcrumbs, direct children and full paths", async () => {
+    expect(
+      [...document.querySelectorAll<HTMLElement>("[data-folder]")].map((n) => n.dataset.folder),
+    ).toEqual(["all", "inbox", "daily", "child", "leaf", "retro", "other"]);
+    expect(nav("daily").querySelector(".folder-count")?.textContent).toBe("1");
+    expect(nav("child").querySelector(".folder-count")?.textContent).toBe("1");
+    expect(nav("leaf").parentElement?.style.getPropertyValue("--folder-depth")).toBe("2");
+    expect(document.querySelector('[data-id="s3"] .folder-chip')?.textContent).toBe(
+      "Груминги / Платежи / API",
+    );
+    nav("daily").click();
+    await settle();
+    expect(view.visible().map((s) => s.sessionId)).toEqual(["s1"]);
+    expect(document.querySelectorAll(".folder-child")).toHaveLength(1);
+    expect(document.querySelector(".folder-child")?.textContent).toBe("Платежи1");
+    document.querySelector<HTMLButtonElement>(".folder-child")!.click();
+    await settle();
+    expect(view.current).toBe("child");
+    expect(view.visible().map((s) => s.sessionId)).toEqual(["s2"]);
+    expect([...document.querySelectorAll(".folder-crumb")].map((b) => b.textContent)).toEqual([
+      "Все созвоны",
+      "Груминги",
+    ]);
+    document.querySelector<HTMLButtonElement>(".folder-crumb")!.click();
+    await settle();
+    expect(view.current).toBe("all");
+    expect(document.querySelector(".folder-breadcrumbs")).toBeNull();
+  });
+
+  it("persists collapse and expands ancestors when selecting a hidden child or reloading", async () => {
+    toggle("daily").click();
+    expect(nav("child")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("history-folder-collapsed")!)).toContain("daily");
+    await refresh();
+    expect(nav("child")).toBeNull();
+    nav("daily").click();
+    await settle();
+    document.querySelector<HTMLButtonElement>(".folder-child")!.click();
+    await settle();
+    expect(nav("child")).not.toBeNull();
+    expect(toggle("daily").getAttribute("aria-expanded")).toBe("true");
+    localStorage.setItem("history-folder", "leaf");
+    localStorage.setItem("history-folder-collapsed", '["daily","child"]');
+    view = new HistoryFolders(api, refresh);
+    await refresh();
+    expect(nav("leaf")).not.toBeNull();
+    expect(view.current).toBe("leaf");
+  });
+
+  it("creates a subfolder and explains the third-level limit", async () => {
+    const create = vi.spyOn(api, "createFolder").mockResolvedValue(nested[3]);
+    actions("daily");
+    click("Новая подпапка");
+    document.querySelector<HTMLInputElement>(".folder-name-input")!.value = "Платежи";
+    document
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(create).toHaveBeenCalledWith("Платежи", "daily");
+    actions("leaf");
+    const child = [...document.querySelectorAll<HTMLButtonElement>(".folder-menu button")].find(
+      (b) => b.textContent === "Новая подпапка",
+    )!;
+    expect(child.disabled).toBe(true);
+    expect(child.title).toContain("3 уровня");
+    expect(document.querySelector(".folder-menu")?.textContent).toContain("Максимум 3 уровня");
+  });
+
+  it("offers visible subfolder buttons in the header and the tree up to the third level", async () => {
+    const create = vi.spyOn(api, "createFolder").mockResolvedValue(nested[3]);
+    view.current = "retro";
+    view.update(nested, sessions);
+    document.querySelector<HTMLButtonElement>(".folder-new-child")!.click();
+    expect(document.querySelector(".folder-dialog h2")?.textContent).toBe(
+      "Новая подпапка в «Ретро»",
+    );
+    document.querySelector<HTMLInputElement>(".folder-name-input")!.value = "Квартал";
+    document
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(create).toHaveBeenCalledWith("Квартал", "retro");
+    const add = (id: string) => nav(id).parentElement?.querySelector(".folder-add-child");
+    expect(add("daily")).not.toBeNull();
+    expect(add("child")).not.toBeNull();
+    expect(add("leaf")).toBeNull();
+    view.current = "leaf";
+    view.update(nested, sessions);
+    expect(document.querySelector(".folder-new-child")).toBeNull();
+  });
+
+  it("moves through a tree without self or descendants and disables excessive depth", async () => {
+    const move = vi.spyOn(api, "moveFolder").mockResolvedValue({ ...nested[3], parentId: "retro" });
+    actions("child");
+    click("Перенести в");
+    expect(target("child")).toBeNull();
+    expect(target("leaf")).toBeNull();
+    expect(target("other")?.disabled).toBe(true);
+    expect(target("other")?.title).toContain("3 уровня");
+    expect(target("daily")?.disabled).toBe(true);
+    expect(target("")?.disabled).toBe(false);
+    expect(target("retro")?.disabled).toBe(false);
+    target("retro")!.click();
+    await settle();
+    expect(move).toHaveBeenCalledWith("child", "retro");
+    expect(document.querySelector(".folder-menu")).toBeNull();
+  });
+
+  it("uses a tree for session moves and accepts drops on third-level folders", async () => {
+    const move = vi.spyOn(api, "moveSession").mockResolvedValue(session("s1", "leaf"));
+    open();
+    const targets = [...document.querySelectorAll<HTMLButtonElement>("[data-move-to]")];
+    expect(targets.map((b) => b.dataset.moveTo)).toEqual([
+      "daily",
+      "child",
+      "leaf",
+      "retro",
+      "other",
+      "",
+    ]);
+    expect(targets[2].style.paddingInlineStart).toBe("46px");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    const card = document.querySelector('[data-id="s1"]')!;
+    const data = transfer();
+    drag(card, "dragstart", data);
+    expect(view.paused).toBe(true);
+    expect(document.querySelector(".folder-root-drop")).toBeNull();
+    expect(drag(nav("leaf"), "dragover", data).defaultPrevented).toBe(true);
+    drag(nav("leaf"), "drop", data);
+    drag(card, "dragend", data);
+    await settle();
+    expect(move).toHaveBeenCalledWith("s1", "leaf");
+    expect(view.paused).toBe(false);
+  });
+
+  it("drags folders to valid parents and top level, rejects cycles and excessive depth", async () => {
+    const move = vi.spyOn(api, "moveFolder").mockImplementation(async (id, parentId) => {
+      const folder = nested.find((f) => f.id === id)!;
+      folder.parentId = parentId;
+      return folder;
+    });
+    const source = nav("child");
+    const data = transfer();
+    drag(source, "dragstart", data);
+    expect(view.paused).toBe(true);
+    for (const id of ["all", "inbox", "daily", "child", "leaf", "other"]) {
+      expect(drag(nav(id), "dragover", data).defaultPrevented, id).toBe(false);
+      expect(nav(id).classList.contains("drag-over")).toBe(false);
+      drag(nav(id), "drop", data);
+    }
+    expect(move).not.toHaveBeenCalled();
+    expect(drag(nav("retro"), "dragover", data).defaultPrevented).toBe(true);
+    drag(nav("retro"), "drop", data);
+    drag(source, "dragend", data);
+    await settle();
+    expect(move).toHaveBeenCalledWith("child", "retro");
+    expect(view.paused).toBe(false);
+    expect(document.querySelector(".folder-root-drop")).toBeNull();
+    const updated = nav("child");
+    const second = transfer();
+    drag(updated, "dragstart", second);
+    const root = document.querySelector(".folder-root-drop")!;
+    expect(root).not.toBeNull();
+    expect(drag(root, "dragover", second).defaultPrevented).toBe(true);
+    drag(root, "drop", second);
+    drag(updated, "dragend", second);
+    await settle();
+    expect(move).toHaveBeenLastCalledWith("child", "");
+    const top = nav("daily");
+    drag(top, "dragstart", transfer());
+    expect(document.querySelector(".folder-root-drop")).toBeNull();
+    drag(top, "dragend", transfer());
+  });
+
+  it("explains nested and root deletion destinations and allows cancellation and retry", async () => {
+    const remove = vi
+      .spyOn(api, "deleteFolder")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue();
+    actions("child");
+    click("Удалить папку");
+    const dialog = document.querySelector("dialog")!;
+    expect(dialog.textContent).toContain("Созвоны (1) → «Груминги»");
+    expect(dialog.textContent).toContain("Подпапки (1: API) → «Груминги»");
+    expect(dialog.textContent).not.toContain("Правила папки");
+    expect(dialog.textContent).toContain("Записи не удаляются");
+    expect(remove).not.toHaveBeenCalled();
+    click("Удалить папку");
+    await settle();
+    expect(dialog.open).toBe(true);
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toBe("offline");
+    click("Удалить папку");
+    await settle();
+    expect(remove).toHaveBeenCalledWith("child");
+    expect(view.current).toBe("daily");
+    expect(document.querySelector("dialog")).toBeNull();
+    actions("daily");
+    click("Удалить папку");
+    expect(document.querySelector("dialog")?.textContent).toContain("Созвоны (1) → «Входящие»");
+    expect(document.querySelector("dialog")?.textContent).toContain(
+      "Подпапки (1: Платежи) → на верхний уровень",
+    );
+    click("Отмена");
+    expect(remove).toHaveBeenCalledTimes(2);
   });
 });

@@ -19,6 +19,7 @@ type SearchFilter struct {
 }
 
 type Call struct {
+	FolderPath   string                `json:"folderPath,omitempty"`
 	Folder       string                `json:"folder,omitempty"`
 	ID           string                `json:"id"`
 	Title        string                `json:"title"`

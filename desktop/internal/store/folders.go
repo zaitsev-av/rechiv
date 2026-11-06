@@ -88,6 +88,42 @@ func readFolders(path string) (folders []domain.Folder, broken bool) {
 		folders = append(folders, folder)
 	}
 
+	// Сначала разрываем отсутствующие связи и циклы, затем проверяем глубину.
+	invalid := map[string]bool{}
+	for _, folder := range folders {
+		if folder.ParentID != "" && !seen[folder.ParentID] {
+			invalid[folder.ID] = true
+		}
+		visited := map[string]bool{folder.ID: true}
+		parent := folder.ParentID
+		for parent != "" {
+			if visited[parent] {
+				if parent == folder.ID {
+					invalid[folder.ID] = true
+				}
+				break
+			}
+			visited[parent] = true
+			i := folderIndex(folders, parent)
+			if i < 0 {
+				break
+			}
+			parent = folders[i].ParentID
+		}
+	}
+	for i := range folders {
+		if invalid[folders[i].ID] {
+			log.Printf("warning: folders %s: invalid parent of %q; reset to root", path, folders[i].ID)
+			folders[i].ParentID = ""
+		}
+	}
+	original := copyFolders(folders)
+	for i := range folders {
+		if len(domain.FolderPath(original, folders[i].ID)) > domain.MaxFolderDepth {
+			log.Printf("warning: folders %s: excessive depth of %q; reset to root", path, folders[i].ID)
+			folders[i].ParentID = ""
+		}
+	}
 	return folders, false
 }
 
@@ -158,12 +194,12 @@ func (s *Store) FolderForCallURL(raw string) (domain.Folder, bool) {
 	return domain.Folder{}, false
 }
 
-func (s *Store) CreateFolder(name string) (domain.Folder, error) {
+func (s *Store) CreateFolder(name, parentID string) (domain.Folder, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	name = strings.TrimSpace(name)
-	if name == "" {
+	if name == "" || parentID != "" && (folderIndex(s.folders, parentID) < 0 || len(domain.FolderPath(s.folders, parentID)) >= domain.MaxFolderDepth) {
 		return domain.Folder{}, ErrInvalid
 	}
 
@@ -177,7 +213,7 @@ func (s *Store) CreateFolder(name string) (domain.Folder, error) {
 		color = (s.folders[len(s.folders)-1].Color + 1) % 5
 	}
 
-	f := domain.Folder{ID: id, Name: name, Color: color, Rules: []domain.FolderRule{}}
+	f := domain.Folder{ID: id, ParentID: parentID, Name: name, Color: color, Rules: []domain.FolderRule{}}
 
 	return f, s.saveFoldersLocked(append(copyFolders(s.folders), f))
 }
@@ -202,6 +238,39 @@ func (s *Store) RenameFolder(id, name string) (domain.Folder, error) {
 	return folders[i], s.saveFoldersLocked(folders)
 }
 
+func (s *Store) MoveFolder(id, parentID string) (domain.Folder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := folderIndex(s.folders, id)
+	if i < 0 {
+		return domain.Folder{}, ErrNotFound
+	}
+	if parentID != "" && folderIndex(s.folders, parentID) < 0 {
+		return domain.Folder{}, ErrInvalid
+	}
+	parentPath := domain.FolderPath(s.folders, parentID)
+	for _, ancestor := range parentPath {
+		if ancestor.ID == id {
+			return domain.Folder{}, ErrInvalid
+		}
+	}
+	height := 1
+	for _, folder := range s.folders {
+		path := domain.FolderPath(s.folders, folder.ID)
+		for j, ancestor := range path {
+			if ancestor.ID == id {
+				height = max(height, len(path)-j)
+			}
+		}
+	}
+	if len(parentPath)+height > domain.MaxFolderDepth {
+		return domain.Folder{}, ErrInvalid
+	}
+	folders := copyFolders(s.folders)
+	folders[i].ParentID = parentID
+	return folders[i], s.saveFoldersLocked(folders)
+}
+
 func (s *Store) DeleteFolder(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -212,13 +281,19 @@ func (s *Store) DeleteFolder(id string) error {
 
 	for _, session := range s.sessions {
 		if session.FolderID == id {
-			if err := s.setFolderLocked(session, "", false); err != nil {
+			if err := s.setFolderLocked(session, s.folders[i].ParentID, false); err != nil {
 				return err
 			}
 		}
 	}
 
-	return s.saveFoldersLocked(slices.Delete(copyFolders(s.folders), i, i+1))
+	folders := copyFolders(s.folders)
+	for j := range folders {
+		if folders[j].ParentID == id {
+			folders[j].ParentID = folders[i].ParentID
+		}
+	}
+	return s.saveFoldersLocked(slices.Delete(folders, i, i+1))
 }
 
 func (s *Store) AddFolderRule(id, raw string) (domain.Folder, []string, error) {
