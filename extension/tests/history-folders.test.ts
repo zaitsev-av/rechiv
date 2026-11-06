@@ -769,6 +769,13 @@ describe("nested folders", () => {
     view.update(nested, sessions);
     document.getElementById("folder-actions")!.click();
   }
+  async function deepen() {
+    nested.push(
+      { id: "d4", name: "Бэкенд", parentId: "leaf", color: 1, rules: [] },
+      { id: "d5", name: "Авторизация", parentId: "d4", color: 2, rules: [] },
+    );
+    await refresh();
+  }
   beforeEach(async () => {
     nested = [
       { id: "leaf", name: "API", parentId: "child", color: 3, rules: [] },
@@ -834,7 +841,7 @@ describe("nested folders", () => {
     expect(view.current).toBe("leaf");
   });
 
-  it("creates a subfolder and explains the third-level limit", async () => {
+  it("creates a subfolder and explains the fifth-level limit", async () => {
     const create = vi.spyOn(api, "createFolder").mockResolvedValue(nested[3]);
     actions("daily");
     click("Новая подпапка");
@@ -844,16 +851,21 @@ describe("nested folders", () => {
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
     expect(create).toHaveBeenCalledWith("Платежи", "daily");
-    actions("leaf");
-    const child = [...document.querySelectorAll<HTMLButtonElement>(".folder-menu button")].find(
-      (b) => b.textContent === "Новая подпапка",
-    )!;
-    expect(child.disabled).toBe(true);
-    expect(child.title).toContain("3 уровня");
-    expect(document.querySelector(".folder-menu")?.textContent).toContain("Максимум 3 уровня");
+    await deepen();
+    const subfolder = () =>
+      [...document.querySelectorAll<HTMLButtonElement>(".folder-menu button")].find(
+        (b) => b.textContent === "Новая подпапка",
+      )!;
+    actions("d4");
+    expect(subfolder().disabled).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    actions("d5");
+    expect(subfolder().disabled).toBe(true);
+    expect(subfolder().title).toContain("5 уровней");
+    expect(document.querySelector(".folder-menu")?.textContent).toContain("Максимум 5 уровней");
   });
 
-  it("offers visible subfolder buttons in the header and the tree up to the third level", async () => {
+  it("offers visible subfolder buttons in the header and the tree up to the fifth level", async () => {
     const create = vi.spyOn(api, "createFolder").mockResolvedValue(nested[3]);
     view.current = "retro";
     view.update(nested, sessions);
@@ -867,23 +879,26 @@ describe("nested folders", () => {
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
     expect(create).toHaveBeenCalledWith("Квартал", "retro");
+    await deepen();
     const add = (id: string) => nav(id).parentElement?.querySelector(".folder-add-child");
-    expect(add("daily")).not.toBeNull();
-    expect(add("child")).not.toBeNull();
-    expect(add("leaf")).toBeNull();
-    view.current = "leaf";
+    for (const id of ["daily", "child", "leaf", "d4"]) expect(add(id), id).not.toBeNull();
+    expect(add("d5")).toBeNull();
+    view.current = "d4";
+    view.update(nested, sessions);
+    expect(document.querySelector(".folder-new-child")).not.toBeNull();
+    view.current = "d5";
     view.update(nested, sessions);
     expect(document.querySelector(".folder-new-child")).toBeNull();
   });
 
   it("moves through a tree without self or descendants and disables excessive depth", async () => {
     const move = vi.spyOn(api, "moveFolder").mockResolvedValue({ ...nested[3], parentId: "retro" });
+    await deepen();
     actions("child");
     click("Перенести в");
-    expect(target("child")).toBeNull();
-    expect(target("leaf")).toBeNull();
+    for (const id of ["child", "leaf", "d4", "d5"]) expect(target(id), id).toBeNull();
     expect(target("other")?.disabled).toBe(true);
-    expect(target("other")?.title).toContain("3 уровня");
+    expect(target("other")?.title).toContain("5 уровней");
     expect(target("daily")?.disabled).toBe(true);
     expect(target("")?.disabled).toBe(false);
     expect(target("retro")?.disabled).toBe(false);
@@ -926,11 +941,12 @@ describe("nested folders", () => {
       folder.parentId = parentId;
       return folder;
     });
+    await deepen();
     const source = nav("child");
     const data = transfer();
     drag(source, "dragstart", data);
     expect(view.paused).toBe(true);
-    for (const id of ["all", "inbox", "daily", "child", "leaf", "other"]) {
+    for (const id of ["all", "inbox", "daily", "child", "leaf", "d4", "d5", "other"]) {
       expect(drag(nav(id), "dragover", data).defaultPrevented, id).toBe(false);
       expect(nav(id).classList.contains("drag-over")).toBe(false);
       drag(nav(id), "drop", data);

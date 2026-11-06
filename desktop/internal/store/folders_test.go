@@ -204,7 +204,7 @@ func TestReadNestedFolders(t *testing.T) {
 		{"legacy", `[{"id":"a","name":"A"},{"id":"b","name":"B"}]`, []string{"", ""}},
 		{"missing", `[{"id":"a","name":"A","parentId":"missing"},{"id":"b","name":"B","parentId":"a"}]`, []string{"", "a"}},
 		{"cycle", `[{"id":"a","name":"A","parentId":"b"},{"id":"b","name":"B","parentId":"a"},{"id":"c","name":"C","parentId":"b"},{"id":"d","name":"D","parentId":"d"}]`, []string{"", "", "b", ""}},
-		{"depth", `[{"id":"d","name":"D","parentId":"c"},{"id":"c","name":"C","parentId":"b"},{"id":"b","name":"B","parentId":"a"},{"id":"a","name":"A"},{"id":"e","name":"E","parentId":"d"}]`, []string{"", "b", "a", "", ""}},
+		{"depth", `[{"id":"f","name":"F","parentId":"e"},{"id":"e","name":"E","parentId":"d"},{"id":"d","name":"D","parentId":"c"},{"id":"c","name":"C","parentId":"b"},{"id":"b","name":"B","parentId":"a"},{"id":"a","name":"A"},{"id":"g","name":"G","parentId":"f"}]`, []string{"", "d", "c", "b", "a", "", ""}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "folders.json")
@@ -241,10 +241,14 @@ func TestNestedFolderMoves(t *testing.T) {
 	require.NoError(t, err)
 	b, err := st.CreateFolder("B", a.ID)
 	require.NoError(t, err)
-	c, err := st.CreateFolder("C", b.ID)
+	x, err := st.CreateFolder("X", b.ID)
 	require.NoError(t, err)
-	require.Equal(t, b.ID, c.ParentID)
-	require.Equal(t, []domain.Folder{a, b, c}, domain.FolderPath(st.Folders(), c.ID))
+	y, err := st.CreateFolder("Y", x.ID)
+	require.NoError(t, err)
+	c, err := st.CreateFolder("C", y.ID)
+	require.NoError(t, err)
+	require.Equal(t, y.ID, c.ParentID)
+	require.Equal(t, []domain.Folder{a, b, x, y, c}, domain.FolderPath(st.Folders(), c.ID))
 	_, err = st.CreateFolder("D", c.ID)
 	require.ErrorIs(t, err, ErrInvalid)
 	_, err = st.CreateFolder("D", "missing")

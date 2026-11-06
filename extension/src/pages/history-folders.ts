@@ -6,7 +6,7 @@ const linkIcon =
   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
 const STORAGE_KEY = "history-folder";
 const COLLAPSED_KEY = `${STORAGE_KEY}-collapsed`;
-const MAX_FOLDER_DEPTH = 3;
+const MAX_FOLDER_DEPTH = 5;
 const FOLDER_MIME = "application/x-rechiv-folder";
 const SESSION_MIME = "application/x-rechiv-session";
 const folderIcon =
@@ -714,7 +714,7 @@ export class HistoryFolders {
     });
     create.disabled = this.path(folder.id).length >= MAX_FOLDER_DEPTH;
     if (create.disabled) {
-      create.title = "Максимум 3 уровня папок";
+      create.title = `Максимум ${MAX_FOLDER_DEPTH} уровней папок`;
       menu.append(element("div", "folder-hint", create.title));
     }
     const move = button("Перенести в", () => this.folderMoveMenu(menu, folder));
@@ -743,7 +743,9 @@ export class HistoryFolders {
       move.disabled = !this.canMove(folder, target.id) || (folder.parentId || "") === target.id;
       if (move.disabled)
         move.title =
-          (folder.parentId || "") === target.id ? "Уже здесь" : "Поддерево превысит 3 уровня";
+          (folder.parentId || "") === target.id
+            ? "Уже здесь"
+            : `Поддерево превысит ${MAX_FOLDER_DEPTH} уровней`;
       menu.append(move);
     }
     this.finishMenu();

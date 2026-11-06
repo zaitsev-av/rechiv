@@ -20,7 +20,7 @@ type FolderSettings struct {
 	RetentionDays int    `json:"retentionDays,omitempty"`
 }
 
-const MaxFolderDepth = 3
+const MaxFolderDepth = 5
 
 type Folder struct {
 	ParentID string         `json:"parentId,omitempty"`

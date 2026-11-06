@@ -116,7 +116,9 @@ func TestNestedFolderRoutes(t *testing.T) {
 	}
 	a := create("A", "")
 	b := create("B", a.ID)
-	c := create("C", b.ID)
+	x := create("X", b.ID)
+	y := create("Y", x.ID)
+	c := create("C", y.ID)
 	other := create("Other", "")
 	call("POST", "/folders", `{"name":"D","parentId":"`+c.ID+`"}`, 422)
 	call("POST", "/folders", `{"name":"D","parentId":"missing"}`, 422)
@@ -140,7 +142,7 @@ func TestNestedFolderRoutes(t *testing.T) {
 	call("PATCH", "/folders/"+c.ID, `{"name":"Renamed"}`, 200)
 	var folders []domain.Folder
 	require.NoError(t, json.Unmarshal(call("GET", "/folders", "", 200).Body.Bytes(), &folders))
-	require.Len(t, folders, 4)
-	require.Equal(t, b.ID, folders[2].ParentID)
-	require.Equal(t, "Renamed", folders[2].Name)
+	require.Len(t, folders, 6)
+	require.Equal(t, y.ID, folders[4].ParentID)
+	require.Equal(t, "Renamed", folders[4].Name)
 }
